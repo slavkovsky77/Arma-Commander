@@ -14,7 +14,7 @@ ACF_ai_assignAttacks = {
 	private _emptyBases = [];
 	private _targetBases = [];
 	IF (count _ongoingAttacks < _strat) then {
-		//Get a list of frontier bases
+		//Get a list of frontier bases4
 		_borderBases = _borderBases - _ongoingAttacks;
 		if (count _borderBases > 0) then {
 			//Get available non-artillery non-air units
@@ -129,7 +129,9 @@ ACF_ai_assignAttacks = {
 		_foes = [_foes,[],{[_x] call ACF_ai_groupStrength},"DESCEND"] call BIS_fnc_sortBy;
 		private _type = GVARS(_foes#0,"typeStr",""); //group entry
 		private _foeType = [_type,"type"] call ACF_getGroupNumber; // unit type
-		//if(DEBUG_MODE) then {systemChat format ["%1 %2 type,",_foeType,_type]};
+		if(DEBUG_MODE) then {
+			systemChat format ["Strongest enemy detected: %1 (%2)", _type, _foeType];
+		};
 
 		private _groupsAvail = _groups select {([_x] call ACF_ai_groupThreat) == _foeType };
 
@@ -190,7 +192,7 @@ ACF_ai_assignAttacks = {
 				private _chance = _x#2;
 				if (random _chance <= 1 && {_fire} && {time >= _x#3}) then {
 					if(DEBUG_MODE) then {
-						systemChat format ["[%1 Preparation artillery fire on: %2", _side, GVAR(_targetBase,"callsign")];
+						systemChat format ["[%1 Preparation artillery fire on: %2 [%3]", _side, _tarGroup, _tarPos];
 					};
 					[_tarPos,_battalion,_forEachIndex] remoteExec ["ACF_callSupport",2];
 				};
@@ -216,17 +218,22 @@ ACF_ai_assignAttacks = {
 	};
 
 	if(DEBUG_MODE) then {
-		systemChat format ["[%1] Strategic Assessment - Borders Bases: %2, Empty Bases: %3", 
-			_side, _borderBases apply {GVAR(_x,"callsign")}, _emptyBases apply {GVAR(_x,"callsign")}];
-		
-		private _infantry = _groups select {GVAR(_x,"type") == TYPE_INFANTRY};
-		private _armor = _groups select {GVAR(_x,"type") == TYPE_MOTORIZED};
-		private _artillery = _groups select {GVAR(_x,"type") == TYPE_ARTILLERY};
-		private _air = _groups select {GVAR(_x,"type") == TYPE_AIR};
+		private _infantry =  AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_INFANTRY} };
+		private _armor =  AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_MOTORIZED} };
+		private _artillery = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
+		private _air = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_AIR} };
 
-		systemChat format ["[%1] Groups Ready - Total: %2 (INF:%3 ARM:%4 ART:%5 AIR:%6)", 
-			_side, count _groups, count _infantry, count _armor, count _artillery, count _air];
-		systemChat format ["[%1] Status - Attacks: %2, Multiplier: %3", _side, count _ongoingAttacks, _strat];
+		systemChat format ["[%1] SITREP ATTACK | Borders: %2 | Empty: %3 | Forces(INF:%4 MOT:%5 ART:%6 Air:%7) | Attacks: %8 Mult: %9", 
+			_side,
+			_borderBases apply {GVAR(_x,"callsign")},
+			_emptyBases apply {GVAR(_x,"callsign")},
+			count _infantry,
+			count _armor,
+			count _artillery,
+			count _air,
+			count _ongoingAttacks,
+			_strat
+		];
 	};
 };
 
@@ -240,7 +247,7 @@ ACF_ai_offensiveAgent = {
 	private _offensiveName = format ["[%1] Offensive %2:", _side, GVAR(_base,"callsign")];
 	
 	if(DEBUG_MODE) then {
-		systemChat format ["%1 Starting offensive with groups: %2", 
+		systemChat format ["%1 Starting with groups: %2", 
 			_offensiveName,
 			_attackGroups
 		];
@@ -337,7 +344,7 @@ ACF_ai_offensiveAgent = {
 			private _chance = _x#2;
 			if (random _chance <= 1 && {_fire} && {time >= _x#3}) then {
 				if(DEBUG_MODE) then {
-					systemChat format ["%1 Preparation artillery fire on: %2", _offensiveName, GVAR(_targetBase,"callsign")];
+					systemChat format ["[%1 Preparation artillery fire on: %2 [%3]", _side, _tarGroup, _tarPos];
 				};
 				[_tarPos,_battalion,_forEachIndex] remoteExec ["ACF_callSupport",2];
 			};
@@ -390,7 +397,7 @@ ACF_ai_offensiveAgent = {
 		private _attDefRatio = (GVAR(_base,"thr_currentStr") max 0.01) / (GVAR(_base,"def_currentDetStr") max 0.01);
 		SVARG(_base,"adRatio",_attDefRatio);
 		if(DEBUG_MODE) then {
-			systemChat format ["%1 offensive Attack/Defense Ratio: %2", _offensiveName, _attDefRatio toFixed 2];
+			systemChat format ["%1 Attack/Defense Ratio: %2", _offensiveName, _attDefRatio toFixed 2];
 		};
 
 		// Victory condition
@@ -412,23 +419,18 @@ ACF_ai_offensiveAgent = {
 		if (count _attackGroups < 1) then {_ended = true;};
 
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Combat Analysis", GVAR(_base,"callsign")];
-			systemChat format ["* Force Ratio (Attack/Defense): %1", _attDefRatio toFixed 2];
-			systemChat format ["* Minimum Force Required: %1", AD_RETREAT_THRESHOLD toFixed 2];
-			systemChat format ["* Attacking Groups: %1", _attackGroups];
-			
-			// Log support decisions
-			if(count _enemyGroups > 0) then {
-				systemChat format ["* Artillery Support: %1 of %2 batteries engaging %3", 
-					{random 3 <= 1} count _artGroups,
-					count _artGroups,
-					_tarGroug
-				];
-				systemChat format ["* Priority Target: %1 at grid %2", 
-					_tarGroup,
-					mapGridPosition _tarPos
-				];
-			}
+			private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
+			private _artStatus = if(count _artGroups > 0) then {
+				format ["Art:%1", count _artGroups]
+			} else { "No Art" };
+
+			systemChat format ["[%1] OFFENSIVE STATUS | Att/Def Ratio:%2/%3 | Groups:%4 | %5", 
+				GVAR(_base,"callsign"),
+				_attDefRatio toFixed 2,
+				AD_RETREAT_THRESHOLD toFixed 2,
+				count _attackGroups,
+				_artStatus
+			];
 		};
 	};
 
@@ -437,7 +439,6 @@ ACF_ai_offensiveAgent = {
 		[_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
 	} forEach _attackGroups;
 	SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
-
 
 };
 
@@ -480,12 +481,11 @@ ACF_ai_counterAgent = {
 	};
 
 	if(DEBUG_MODE) then {
-		systemChat format ["Counter %1 pursuing %2", 
+		systemChat format ["Counter %1 pursuing %2, staging timeout: %3s", 
 			GVAR(_attackGroup,"callsign"),
-			GVAR(_enemy,"callsign")
+			GVAR(_enemy,"callsign"),
+			(_stagingTimeout - time) toFixed 2
 		];
-		systemChat format ["- Detection Status: %1", GVARS(_enemy,_color,false)];
-		systemChat format ["- Time Remaining: %1s", (_stagingTimeout - time) toFixed 0];
 	};
 };
 
@@ -600,13 +600,11 @@ ACF_ai_transportAgent = {
 	SVARG(_battalion,"transports",GVAR(_battalion,"transports") - [_transportGroup]);
 
 	if(DEBUG_MODE) then {
-		systemChat format ["[Transport] %1 -> %2 | Distance: %3m | Capacity: %4/%5 | Status: %6", 
-			_attackGroup,
-			GVAR(_base,"callsign"),
-			round(_stagingPoint distance _base),
-			vehicle leader _transportGroup emptyPositions "Cargo",
-			count units _attackGroup,
-			if([_attackGroup] call ACF_isTransported) then {"Loaded"} else {"Moving"}
+		systemChat format ["[%1] TRANSPORT | Assets:%2 | Infantry:%3 | Active:%4", 
+			_side,
+			count _transGroups,
+			count _infGroups,
+			count _ongoingTransports
 		];
 	};
 };
@@ -701,13 +699,13 @@ ACF_ai_attackReinforcements = {
 	} forEach (_currentAttackers - _newAttackers);
 
 	if(DEBUG_MODE) then {
-		systemChat format ["[%1] Reinforcements: Required(%2) Current(%3) Available(%4) Stage(%5) Groups(%6)", 
+		systemChat format ["[%1] REINFORCE | Str:%2/%3 | Stage:%4 | Groups:%5/%6", 
 			GVAR(_base,"callsign"),
-			round _idealAttackStr,
 			round _newStr,
-			count _availableGroups,
-			if(_attackStage == AS_STAGING) then {"Staging"} else {"Assault"},
-			_newAttackers
+			round _idealAttackStr,
+			if(_attackStage == AS_STAGING) then {"STAGING"} else {"ASSAULT"},
+			count _newAttackers,
+			count _availableGroups
 		];
 	};
 	_newAttackers

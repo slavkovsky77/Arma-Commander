@@ -52,7 +52,7 @@ ACF_ai_changeBehavior = {
 			default { "DEFAULT" };
 		};
 		systemChat format ["[%1] Switching to %2 behavior", 
-			GVAR(_group,"callsign"),
+			_group,
 			_behaviorName
 		];
 	};

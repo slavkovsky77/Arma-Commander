@@ -52,9 +52,9 @@ ACF_ai_calculateDefensesAndThreat = {
 	// };
 	
 	if (_side == sideEmpty) exitWith {
-		if(DEBUG_MODE) then {
-			systemChat format ["Base %1 is empty - zeroing all values", _baseName];
-		};
+		// if(DEBUG_MODE) then {
+		// 	systemChat format ["Base %1 is empty - zeroing all values", _baseName];
+		// };
 		_base setVariable ["def_currentStr",0]; // Strength of units assigned to defense of the base
 		_base setVariable ["thr_currentStr",0];
 		_base setVariable ["att_costDet",0]; // How "expensive" is detected to attack into a location at the moment
@@ -134,15 +134,17 @@ ACF_ai_calculateDefensesAndThreat = {
 	_base setVariable ["def_currentDetStr",_defCurrentStrDet]; // How many detected units are assigned to defense of the base
 	// TODO ::
 	if(DEBUG_MODE) then {
-		systemChat format ["[%1] Base %2: Defense/Threat(%2) Spotted(%3/%4) Cost-Atack/Deffense(%3/%4)", 
-			_side, 
-			_baseName,
-			if(_thrCurrentStr > 0) then {(_defCurrentStr/_thrCurrentStr) toFixed 2} else {"∞"},
-			count (_defCurrent select {GVARS(_x,_color2,false)}),
-			count _defCurrent,
-			_attackCostDet,
-			_defenseCostDet
-		];
+		if (_thrCurrentStr > 0 && _defCurrentStr > 0) then {
+			systemChat format ["[%1] BASE %2 | Def/Thr(%3) | Units(%4/%5) | Cost A/D(%6/%7)", 
+				_side, 
+				_baseName,
+				(_defCurrentStr/_thrCurrentStr) toFixed 2,
+				count (_defCurrent select {GVARS(_x,_color2,false)}),
+				count _defCurrent,
+				_attackCostDet,
+				_defenseCostDet
+			];
+		};
 	};
 };
 
@@ -184,22 +186,23 @@ ACF_ai_showAiInfo = {
         ];
         
         // Base Status - Single Line per Base
-        private _bases = AC_bases select {GVAR(_x,"side") == _side};
-        {
-            private _base = _x;
-            private _defenders = GVARS(_base,"defenders",[]);
-            private _defStr = GVAR(_base,"def_currentStr");
-            private _thrStr = GVAR(_base,"thr_currentStr");
-            
-            systemChat format ["[%1] Base %2: Def(%3/%.1f) Thr(%.1f) Ratio(%4)", 
-                _side,
-                GVAR(_base,"callsign"),
-                count _defenders,
-                _defStr,
-                _thrStr,
-                if(_thrStr > 0) then {(_defStr/_thrStr) toFixed 2} else {"∞"}
-            ];
-        } forEach _bases;
+        // private _bases = AC_bases select {GVAR(_x,"side") == _side};
+        // {
+        //     private _base = _x;
+        //     private _defenders = GVARS(_base,"defenders",[]);
+        //     private _defStr = GVAR(_base,"def_currentStr");
+        //     private _thrStr = GVAR(_base,"thr_currentStr");
+        //     private _baseName = GVAR(_base,"callsign");
+		// 	systemChat format ["[%1] BASE %2 | Def/Thr:%3 | Units:%4/%5 | Cost A/D:%6/%7",
+		// 		_side, 
+		// 		_baseName,
+		// 		if(_thrCurrentStr > 0) then {(_defCurrentStr/_thrCurrentStr) toFixed 2} else {"∞"},
+		// 		count (_defCurrent select {GVARS(_x,_color2,false)}),
+		// 		count _defCurrent,
+		// 		_attackCostDet toFixed 1,
+		// 		_defenseCostDet toFixed 1
+		// 	];
+        // } forEach _bases;
     } forEach AC_battalions;
 };
 
@@ -274,18 +277,25 @@ ACF_ai_groupStrength = {
 	private _result = _defaultCost * (_n / _max);
 	private _groupType = [_type,"type"] call ACF_getGroupNumber;
 
-
-	if (_groupType == 0) then {_result=_result*2;};
+	// wtf is this?
+	if (_groupType == TYPE_INFANTRY) then {
+		_result=_result*2;
+	};
 
 	{
-
 		_result = _result + GVARS(_x, "VehValue", 1);
 		true
 	} count ([_group] call ACF_getGroupVehicles);
 
 	if(DEBUG_MODE) then {
-		systemChat format ["Group %1 strength, %2 of %3 units, %4 maxstr %6, type %5",
-			_result, _n, _max, _defaultCost, _type, _groupType
+		private _groupString = [_groupType, "name"] call ACF_getGroupString;  // Get proper group type name
+
+		systemChat format ["[Group] %1 (%2) | Strength:%3 | Units:%4/%5", 
+			_group,
+			_groupString,
+			_result toFixed 1,
+			_n,         // Alive units
+			_max        // Total units
 		];
 	};
 
@@ -364,18 +374,6 @@ ACF_ai_assignDefenders = {
 	} count _bases;
 
 	// Concede badly outnumbered bases
-	if(DEBUG_MODE) then {
-		{
-			_x params ["_base", "_score"];
-			systemChat format ["[%1] Base %2 defense priority score: %3", 
-				_side,
-				GVAR(_base,"callsign"),
-				_score
-			];
-		} forEach _basesPriority;
-	};
-
-	// Concede badly outnumbered bases
 	private _basesConceded = [];
 	private _conceded = [];
 	{
@@ -384,7 +382,7 @@ ACF_ai_assignDefenders = {
 			&& {count _bases - count _basesConceded > 1}
 		) then {
 			if(DEBUG_MODE) then {
-				systemChat format ["[%1] Conceding base %2 - overwhelming threat", 
+				systemChat format ["[%1] Conceding BASE %2 - overwhelming threat", 
 					_side,
 					GVAR(_base,"callsign")
 				];
@@ -481,7 +479,7 @@ ACF_ai_assignDefenders = {
 		
 		_totalAvailable = {GVARS(_x,"canGetOrders",true)} count _availableGroups;
 		
-		systemChat format ["[%1] Defense: Required(%1) Available(%2) Conceded(%3)", 
+		systemChat format ["[%1] Defense: Required(%2) Available(%3) Conceded(%4)", 
 			_side,
 			_totalNeeded,
 			_totalAvailable,
@@ -606,6 +604,7 @@ ACF_assignIdleGroups = {
 		private _base = _frontlineBases#0;
 		if (!isNil "_base" && {!isNull _base} && {currentWaypoint _x == 1} && {(_base distance _groupPos > BASE_PERIMETER_MAX)} ) then {
 			[_x, _base, B_TRANSPORT, true, 7] call ACF_ai_moveToBase;
+			
 			if (DEBUG_MODE) then {
 				systemChat format ["[%1] Moving %2 to frontline %3", 
 					_side, 
@@ -632,7 +631,7 @@ ACF_assignIdleGroups = {
 			systemChat format ["[%1] Strategy: Ongoing Attacks(%2) Frontline(%3)", 
 				_side,
 				_ongoingAttacks apply {GVAR(_x,"callsign")},
-				_groups apply {GVAR(_x,"callsign")}
+				_groups
 			];
 		};
 	};

@@ -175,7 +175,7 @@ ACF_ec_requestUnitAI = {
 	if (_selectedUnitIndex > -1) then {
 		private _selectedUnit = _unitTable#_selectedUnitIndex;
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Purchase: %2 (Cost:%3 Left:%4) Groups:%5/%6", 
+			systemChat format ["[%1] PURCHASE | Unit:%2 | Cost:%3 | Stock:%4 | Groups:%5/%6", 
 				_side,
 				_selectedUnit#0,
 				_selectedUnit#2,
@@ -187,7 +187,7 @@ ACF_ec_requestUnitAI = {
 		[_battalion,_selectedUnitIndex] call ACF_ec_orderGroup;
 	} else {
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Purchase failed: No suitable units", _side];
+			systemChat format ["[%1] PURCHASE failed: No suitable units", _side];
 		};
 	};
 };
@@ -239,18 +239,18 @@ ACF_ec_requestCounterUnitAI = {
 	if (_selectedUnitIndex > -1) then {
 		private _selectedUnit = _unitTable#_selectedUnitIndex;
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Counter: %2 vs %3 (Cost:%4 Left:%5)", 
+			systemChat format ["[%1] COUNTER PURCHASE | Unit:%2 | Cost:%3 | Stock:%4 | Counter groups %5", 
 				_side,
 				_selectedUnit#0,
-				_groups apply {GVAR(_x,"callsign")},
 				_selectedUnit#2,
-				_selectedUnit#1
+				_selectedUnit#1,
+				_groups
 			];
 		};
 		[_battalion,_selectedUnitIndex] call ACF_ec_orderGroup;
 	} else {
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Counter failed: No suitable units", _side];
+			systemChat format ["[%1]  COUNTER PURCHASE failed: No suitable units", _side];
 		};
 	};
 };
@@ -304,12 +304,13 @@ ACF_ec_requestMobilityUnitAI = {
 		// DEBUG
 		//systemChat str [_selectedUnitIndex,_unitTable#_selectedUnitIndex];
 		if(DEBUG_MODE) then {
-			systemChat format ["[%1] Purchasing Transport: %2 (Cost:%3 Left:%4) Groups:%5", 
+			private _selectedUnit = _unitTable#_selectedUnitIndex; 
+			systemChat format ["[%1] TRANSPORT | Unit:%2 | Cost:%3 | Stock:%4 | For:%5 groups", 
 				_side,
-				_selectedUnit#0,
-				_selectedUnit#2,
-				_selectedUnit#1,
-				count _groups
+				_selectedUnit#0,  // transport type
+				_selectedUnit#2,  // cost
+				_selectedUnit#1,  // remaining in stock
+				count _groups    // number of groups needing transport
 			];
 		};
 	};
@@ -319,15 +320,25 @@ ACF_ec_checkForReinforcements = {
 	params ["_battalion"];
 	// Reinforce units with some randomization
 	private _side = GVAR(_battalion,"side");
+    private _startingPoints = GVAR(_battalion,"points");
+
+    // Track what gets reinforced
+    private _reinforcedBases = [];
+    private _resuppliedGroups = [];
+    private _totalCost = 0;
+    private _soldiersAdded = 0;
 
 	//reinforce bases with randomization
 	private _module = GVARS(_battalion,"module",objNull);
 	private _modifier = 1;
 	{
 		if !(GVARS(_X,"deployed", DEPLOYED_FALSE) == DEPLOYED_FALSE) exitWith {};
+		private _base = _x;
+		private _currentSoldiers = GVAR(_x,"nSoldiers");
 		private _newSoldiers = GVAR(_x,"nSoldiersOriginal");
-		private _resupplyCost = _newSoldiers - GVAR(_x,"nSoldiers");
+		private _resupplyCost = _newSoldiers - _currentSoldiers;
 		private _points = GVAR(_battalion,"points");
+
 		if (isNull _module) then {
 			private _conf = configfile >> "AC" >> "Battalions" >> _battalion getVariable "type" >> "Reserves";
 			_modifier = getNumber (_conf >> "modifier");
@@ -338,6 +349,12 @@ ACF_ec_checkForReinforcements = {
 		};
 
 		if (_resupplyCost == 0 || {_points < _resupplyCost} || {random 2 > 1}) exitWith {};
+		
+		_reinforcedBases pushBack _base;
+		_totalCost = _totalCost + _resupplyCost;
+        _soldiersAdded = _soldiersAdded + (_newSoldiers - _currentSoldiers);
+
+		
 		SVARG(_x,"nSoldiers", _newSoldiers);
 		SVARG(_battalion,"points", _points - _resupplyCost);
 	} forEach (AC_bases select {GVAR(_x,"side") == _side});
@@ -345,29 +362,25 @@ ACF_ec_checkForReinforcements = {
 	{
 		private _cost = [_x, _battalion] call ACF_canResupply;
 		if (_cost >= 0 && random 2 <= 1) then {
+			_resuppliedGroups pushBack _x;
+            _totalCost = _totalCost + _cost;
 			[_x, _battalion, _cost] call ACF_resupplyGroup;
 			sleep 1;
 		};
 	} forEach ([_battalion] call ACF_combatGroups);
 
-	if(DEBUG_MODE) then {
-		private _reinforcedBases = 0;
-		private _reinforcedGroups = 0;
-		{
-			if(GVAR(_x,"nSoldiersOriginal") > GVAR(_x,"nSoldiers")) then {
-				_reinforcedBases = _reinforcedBases + 1;
-			};
-		} forEach (AC_bases select {GVAR(_x,"side") == _side});
-		
-		if (count _reinforcedGroups > 0 && count _groups > 0) then {
-			systemChat format ["[%1] Reinforcements Check: Bases(%2) Groups(%3)", 
-				_side,
-				_reinforcedBases,
-				_reinforcedGroups
-			];
-		};
-		
-	};
+    // Single debug message showing what actually happened
+    if(DEBUG_MODE) then {
+        systemChat format ["[%1] REINFORCE CHECK | Points:%2->%3 | Cost:%4 | Soldiers:+%5 | Bases:%6 | Groups:%7", 
+            _side,
+            _startingPoints,
+            GVAR(_battalion,"points"),
+            _totalCost,
+            _soldiersAdded,
+            _reinforcedBases,
+            _resuppliedGroups
+        ];
+    };
 };
 
 ACF_ec_orderGroup = {
