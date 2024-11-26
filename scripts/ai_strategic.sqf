@@ -28,6 +28,8 @@ ACF_ai_strategyAgent = {
 				[_x] call ACF_ai_assignDefenders;
 				sleep 1;
 				[_x] call ACF_assignIdleGroups;
+				// sleep 1;
+				// [_x] call ACF_ai_manageBattalionMovement;
 			};
 			true
 		} count AC_battalions;
@@ -153,56 +155,32 @@ ACF_ai_showAiInfo = {
     if(!DEBUG_MODE) exitWith {};
     
     {
-        private _battalion = _x;
+
+  		private _battalion = _x;
         private _side = GVAR(_battalion,"side");
         private _attacks = GVARS(_battalion,"attacks",[]);
         private _counters = GVARS(_battalion,"counters",[]);
         private _transports = GVARS(_battalion,"transports",[]);
-        
-        // Group Statistics
-        private _groups = AC_operationGroups select {side _x == _side};
-        private _totalStrength = 0;
-        private _combatGroups = 0;
-        private _supportGroups = 0;
-        
-        {
-            _totalStrength = _totalStrength + ([_x] call ACF_ai_groupStrength);
-            if (GVAR(_x,"type") == TYPE_ARTILLERY || GVAR(_x,"type") == TYPE_AIR) then {
-                _supportGroups = _supportGroups + 1;
-            } else {
-                _combatGroups = _combatGroups + 1;
-            };
-        } forEach _groups;
+        private _defenders = AC_operationGroups select {GVARS(_x,"defending",false) && {side _x == _side}};
+        private _idles = AC_operationGroups select {GVARS(_x,"canGetOrders",true) && {side _x == _side}};
 
-        // Battalion Overview - Single Line
-        systemChat format ["[%1] Battalion: Attacks(%2) Counters(%3) Transport(%4) Combat(%5) Support(%6) Str(%7)", 
+        // Log overall status
+        systemChat format ["[%1] Battalion: Attacking: %2 | Defending: %3 | Transporting: %4 | Idling: %5, Total: %6", 
             _side,
-            _attacks apply {GVAR(_x,"callsign")},
-            count _counters,
+            count _attacks,
+            count _defenders,
             count _transports,
-            _combatGroups,
-            _supportGroups,
-            _totalStrength toFixed 1
+            count _idles,
+			count (AC_operationGroups select {side _x == _side})
         ];
-        
-        // Base Status - Single Line per Base
-        // private _bases = AC_bases select {GVAR(_x,"side") == _side};
-        // {
-        //     private _base = _x;
-        //     private _defenders = GVARS(_base,"defenders",[]);
-        //     private _defStr = GVAR(_base,"def_currentStr");
-        //     private _thrStr = GVAR(_base,"thr_currentStr");
-        //     private _baseName = GVAR(_base,"callsign");
-		// 	systemChat format ["[%1] BASE %2 | Def/Thr:%3 | Units:%4/%5 | Cost A/D:%6/%7",
-		// 		_side, 
-		// 		_baseName,
-		// 		if(_thrCurrentStr > 0) then {(_defCurrentStr/_thrCurrentStr) toFixed 2} else {"∞"},
-		// 		count (_defCurrent select {GVARS(_x,_color2,false)}),
-		// 		count _defCurrent,
-		// 		_attackCostDet toFixed 1,
-		// 		_defenseCostDet toFixed 1
-		// 	];
-        // } forEach _bases;
+        // same shit but write groups not just counts
+		 systemChat format ["[%1] Battalion more info: Attacking: %2 | Defending: %3 | Transporting: %4 | Idling: %5",
+			_side,
+			_attacks,
+			_defenders,
+			_transports,
+			_idles
+		 ];
     } forEach AC_battalions;
 };
 
@@ -288,11 +266,11 @@ ACF_ai_groupStrength = {
 	} count ([_group] call ACF_getGroupVehicles);
 
 	if(DEBUG_MODE) then {
-		private _groupString = [_groupType, "name"] call ACF_getGroupString;  // Get proper group type name
+		//private _groupString = [_groupType, "name"] call ACF_getGroupString;  // Get proper group type name
 
-		systemChat format ["[Group] %1 (%2) | Strength:%3 | Units:%4/%5", 
+		systemChat format ["[Group] %1 Strength:%2 | Units:%3/%5", 
 			_group,
-			_groupString,
+			//_groupString,
 			_result toFixed 1,
 			_n,         // Alive units
 			_max        // Total units

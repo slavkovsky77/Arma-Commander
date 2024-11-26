@@ -13,6 +13,7 @@ ACF_ai_assignAttacks = {
 	private _borderBases = [_side] call ACF_borderBases;
 	private _emptyBases = [];
 	private _targetBases = [];
+	
 	IF (count _ongoingAttacks < _strat) then {
 		//Get a list of frontier bases4
 		_borderBases = _borderBases - _ongoingAttacks;
@@ -52,7 +53,33 @@ ACF_ai_assignAttacks = {
 				if (count _groups > 0) then {
 					_groups = [_groups,[],{leader _x distance2D _battalion},"ASCEND"] call BIS_fnc_sortBy;
 					private _leadGroup = _groups#0;
-					_targetBases = [_targetBases,[],{(GVAR(_x,"att_costDet") max 10) * ((_x distance2D leader _leadGroup) /1000)},"ASCEND"] call BIS_fnc_sortBy;
+					//_targetBases = [_targetBases,[],{(GVAR(_x,"att_costDet") max 10) * ((_x distance2D leader _leadGroup) /1000)},"ASCEND"] call BIS_fnc_sortBy;
+					// ... existing code ...
+					_targetBases = [_targetBases,[],{
+						private _baseCost = GVAR(_x,"att_costDet");
+						private _distance = (_x distance2D leader _leadGroup);
+						private _enemyPresence = GVAR(_x,"thr_currentStr");
+						
+						private _maxDistance = 2000;
+						private _maxCost = 10;
+						private _maxPresence = 100;
+						
+						private _normalizedDistance = (_distance / _maxDistance) max 1;
+						private _normalizedBaseCost = (_baseCost / _maxCost) max 1;
+						private _normalizedPresence = (_enemyPresence / _maxPresence) max 1;
+						
+
+						// Weighted scoring system
+						private _distanceWeight = 0.4;  // Reduce distance importance
+						private _costWeight = 0.3;
+						private _presenceWeight = 0.3;
+						
+						// Lower score is better
+						(_normalizedBaseCost* _costWeight) + 
+						(_normalizedDistance * _distanceWeight) + 
+						(_normalizedPresence * _presenceWeight)
+					},"ASCEND"] call BIS_fnc_sortBy;
+					
 					private _targetBase = _targetBases#0;
 					_groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
 
@@ -599,14 +626,14 @@ ACF_ai_transportAgent = {
 	SVARG(_transportGroup,"canGetOrders",true);
 	SVARG(_battalion,"transports",GVAR(_battalion,"transports") - [_transportGroup]);
 
-	if(DEBUG_MODE) then {
-		systemChat format ["[%1] TRANSPORT | Assets:%2 | Infantry:%3 | Active:%4", 
-			_side,
-			count _transGroups,
-			count _infGroups,
-			count _ongoingTransports
-		];
-	};
+	// if(DEBUG_MODE) then {
+	// 	systemChat format ["[%1] TRANSPORT | Assets:%2 | Infantry:%3 | Active:%4", 
+	// 		_side,
+	// 		count _transGroups,
+	// 		count _infGroups,
+	// 		count _ongoingTransports
+	// 	];
+	// };
 };
 
 
@@ -615,7 +642,14 @@ ACF_ai_moveToStaging = {
 	params ["_group","_base",["_moveType",B_DEFAULT],"_canGetOrders",["_randomization",0]];
 	private _leaderPos = getPosATL leader _group;
 	private _distance = (GVAR(_base,"out_perimeter") + OFFENSIVE_STAGING_DISTANCE);
-	private _stagingPoint = _base getRelPos [_distance,_base getRelDir _leaderPos];
+	
+	// Add randomization to staging point selection
+	private _angleSpread = 45; // Degrees
+	private _baseAngle = _base getRelDir _leaderPos;
+	private _randomAngle = _baseAngle + (random _angleSpread - _angleSpread/2);
+	private _distanceVar = _distance * (0.8 + random 0.4); // 80-120% of original distance
+	
+	private _stagingPoint = _base getRelPos [_distanceVar, _randomAngle];
 	private _roads = _stagingPoint nearRoads 60;
 	private _spawns = [];
 	if (count _roads > 0) then {
