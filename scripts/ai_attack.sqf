@@ -3,6 +3,41 @@
 
 systemChat format ["ai_attack v0.1.4"];
 
+// New function to extract target base selection logic
+ACF_ai_selectTargetBase = {
+	params ["_borderBases", "_side", "_groups"];
+	private _targetBases = _borderBases select {GVAR(_x,"side") != _side};
+	if (count _targetBases == 0) exitWith { [] };
+	
+	private _maxDistance = 5000;
+	private _maxCost = 100;
+	private _maxPresence = 100;
+	
+	_targetBases = [_targetBases,[],{
+		private _base = _x;
+		private _distance = leader (_groups#0) distance2D _base;
+		private _baseCost = GVAR(_base,"att_costDet");
+		private _enemyPresence = GVAR(_base,"nSoldiersOriginal");
+		
+		private _normalizedDistance = (_distance / _maxDistance) max 1;
+		private _normalizedBaseCost = (_baseCost / _maxCost) max 1;
+		private _normalizedPresence = (_enemyPresence / _maxPresence) max 1;
+		
+		// Weighted scoring system
+		private _distanceWeight = 0.4;  // Reduce distance importance
+		private _costWeight = 0.3;
+		private _presenceWeight = 0.3;
+		
+		// Lower score is better
+		(_normalizedBaseCost * _costWeight) + 
+		(_normalizedDistance * _distanceWeight) + 
+		(_normalizedPresence * _presenceWeight)
+	},"ASCEND"] call BIS_fnc_sortBy;
+	
+	_targetBases
+};
+
+// Modified ACF_ai_assignAttacks to use the new function
 ACF_ai_assignAttacks = {
 	params ["_battalion"];
 	private _side = GVAR(_battalion,"side");
@@ -47,39 +82,10 @@ ACF_ai_assignAttacks = {
 				_groups = _groups - [_closestGroup];
 			};
 
-			// Attack any base
-			_targetBases = _borderBases select {GVAR(_x,"side") != _side};
-			if (count _targetBases > 0) then {
-				if (count _groups > 0) then {
-					_groups = [_groups,[],{leader _x distance2D _battalion},"ASCEND"] call BIS_fnc_sortBy;
-					private _leadGroup = _groups#0;
-					//_targetBases = [_targetBases,[],{(GVAR(_x,"att_costDet") max 10) * ((_x distance2D leader _leadGroup) /1000)},"ASCEND"] call BIS_fnc_sortBy;
-					// ... existing code ...
-					_targetBases = [_targetBases,[],{
-						private _baseCost = GVAR(_x,"att_costDet");
-						private _distance = (_x distance2D leader _leadGroup);
-						private _enemyPresence = GVAR(_x,"thr_currentStr");
-						
-						private _maxDistance = 2000;
-						private _maxCost = 10;
-						private _maxPresence = 100;
-						
-						private _normalizedDistance = (_distance / _maxDistance) max 1;
-						private _normalizedBaseCost = (_baseCost / _maxCost) max 1;
-						private _normalizedPresence = (_enemyPresence / _maxPresence) max 1;
-						
-
-						// Weighted scoring system
-						private _distanceWeight = 0.4;  // Reduce distance importance
-						private _costWeight = 0.3;
-						private _presenceWeight = 0.3;
-						
-						// Lower score is better
-						(_normalizedBaseCost* _costWeight) + 
-						(_normalizedDistance * _distanceWeight) + 
-						(_normalizedPresence * _presenceWeight)
-					},"ASCEND"] call BIS_fnc_sortBy;
-					
+			// Use new function for target base selection
+			if (count _groups > 0) then {
+				_targetBases = [_borderBases, _side, _groups] call ACF_ai_selectTargetBase;
+				if (count _targetBases > 0) then {
 					private _targetBase = _targetBases#0;
 					_groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
 
@@ -183,59 +189,7 @@ ACF_ai_assignAttacks = {
 				[_battalion, _groupsRequest] call ACF_ec_requestCounterUnitAI;
 			};
 			if (_foeType == TYPE_AIR) exitwith {};
-			private _supports = GVARS(_battalion,"ec_supportsList",[]);
-			if (count _supports == 0) exitwith {};
-			{
-				//artillery support
-				private _fire = false;
-				private _vehicle = ([_tarGroup] call ACF_getGroupVehicles) param [0, objNull];
-				if (_x#5 == SUPPORT_CAS) then {
-					if (isNull _vehicle) then {
-						_fire = true;
-					} else {
-						if (_x#7 > 0)  then {
-							_fire = true;
-						};
-					};
-				} else {
-					private _usage = ((getText (configfile >> "CfgAmmo" >> _x#6 >> "aiAmmoUsageFlags")) splitString " + ");
-					if (isNull _vehicle) then {
-						if ("64" in _usage) then {
-							_fire = true;
-						};
-					} else {
-						if (_vehicle isKindOf "Tank") then {
-							if ("512" in _usage) then {
-								_fire = true;
-							};
-						} else {
-							if ("128" in _usage) then {
-								_fire = true;
-							};
-						};
-					};
-				};
-				//
-				private _chance = _x#2;
-				if (random _chance <= 1 && {_fire} && {time >= _x#3}) then {
-					if(DEBUG_MODE) then {
-						systemChat format ["[%1 Preparation artillery fire on: %2 [%3]", _side, _tarGroup, _tarPos];
-					};
-					[_tarPos,_battalion,_forEachIndex] remoteExec ["ACF_callSupport",2];
-				};
-			} forEach _supports;
-			// Use artillery units
-			private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
-			{
-				if (random 3 <= 1) then {
-					[_x, _tarPos] call AC_ai_fireMission;
-					if(DEBUG_MODE) then {
-						systemChat format ["[%1] Fire mission called", _side];
-					};
-				};
-				sleep 1;
-			} forEach _artGroups;
-
+			[_tarGroup, _tarPos, _side, _battalion] call ACF_ai_useSupports;
 		};
 
 		_groupsAvail = [_groupsAvail,[],{leader _x distance2D _tarPos},"ASCEND"] call BIS_fnc_sortBy;
@@ -336,59 +290,7 @@ ACF_ai_offensiveAgent = {
 		_enemyGroups = [_enemyGroups,[],{leader _x distance2D _base},"ASCEND"] call BIS_fnc_sortBy;
 		private _tarGroup = _enemyGroups#0;
 		private _tarPos = getPosWorld leader _tarGroup;
-		private _supports = GVARS(_battalion,"ec_supportsList",[]);
-		if (count _supports == 0) exitwith {};
-		{
-			//artillery support
-			private _fire = false;
-			private _vehicle = ([_tarGroup] call ACF_getGroupVehicles) param [0, objNull];
-			if (_x#5 == SUPPORT_CAS) then {
-				if (isNull _vehicle) then {
-					_fire = true;
-				} else {
-					if (_x#7 > 0)  then {
-						_fire = true;
-					};
-				};
-			} else {
-				private _usage = ((getText (configfile >> "CfgAmmo" >> _x#6 >> "aiAmmoUsageFlags")) splitString " + ");
-				if (isNull _vehicle) then {
-					if ("64" in _usage) then {
-						_fire = true;
-					};
-				} else {
-					if (_vehicle isKindOf "Tank") then {
-						if ("512" in _usage) then {
-							_fire = true;
-						};
-					} else {
-						if ("128" in _usage) then {
-							_fire = true;
-						};
-					};
-				};
-			};
-			private _chance = _x#2;
-			if (random _chance <= 1 && {_fire} && {time >= _x#3}) then {
-				if(DEBUG_MODE) then {
-					systemChat format ["[%1 Preparation artillery fire on: %2 [%3]", _side, _tarGroup, _tarPos];
-				};
-				[_tarPos,_battalion,_forEachIndex] remoteExec ["ACF_callSupport",2];
-			};
-		} forEach _supports;
-
-		// Use artillery units
-		private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
-		{
-			if (random 3 <= 1) then {
-				[_x, _tarPos] call AC_ai_fireMission;
-				if(DEBUG_MODE) then {
-					systemChat format ["%1 Fire mission called", _offensiveName];
-				};
-			};
-			sleep 1;
-		} forEach _artGroups;
-
+		[_tarGroup, _tarPos, _side, _battalion, _offensiveName] call ACF_ai_useSupports;
 	};
 
 	sleep STRATEGY_TICK;
@@ -516,6 +418,75 @@ ACF_ai_counterAgent = {
 	};
 };
 
+// Add new helper functions at the top of the file
+ACF_ai_findNearestRoad = {
+    params ["_pos", "_searchRadius", "_referencePos"];
+    private _roads = _pos nearRoads _searchRadius;
+    if (count _roads > 0) then {
+        _roads = [_roads,[],{_x distance _referencePos},"ASCEND"] call BIS_fnc_sortBy;
+        private _nearest_road = ASLToAGL getPosASL (_roads#0);
+        _nearest_road
+    } else {
+        []
+    };
+};
+
+ACF_ai_findNearestSpawn = {
+    params ["_base", "_spawnTypes", "_referencePos"];
+    private _spawns = [];
+    {
+        _spawns append GVARS(_base,_x,[]);
+    } forEach _spawnTypes;
+    
+    if (count _spawns > 0) then {
+        _spawns = [_spawns,[],{_x distance _referencePos},"ASCEND"] call BIS_fnc_sortBy;
+        _spawns#0
+    } else {
+        []
+    };
+};
+
+ACF_ai_findSafePos = {
+    params ["_basePos", "_searchRadius"];
+    private _safePos = [_basePos, 0, _searchRadius, 4, 0, 0.6, 0,[],[_basePos,_basePos]] call BIS_fnc_findSafePos;
+    _safePos
+};
+
+// Improved transport staging finder with flattened logic
+ACF_ai_findTransportStaging = {
+    params ["_attackGroup", "_attackerPos", "_transPos", "_base"];
+    
+    // Initial point between attacker and transport
+    private _stagingPoint = leader _attackGroup getRelPos [(_attackerPos distance _transPos)/5, leader _attackGroup getRelDir _transPos];
+    private _bases = [AC_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
+    
+    // First attempt with initial position
+    if (_bases#0 distance _stagingPoint < 450) then {
+        private _nearestSpawn = [_bases#0, ["stagePoints","spawnPoints"], _attackerPos] call ACF_ai_findNearestSpawn;
+        if (count _nearestSpawn > 0) exitWith {_nearestSpawn};
+    };
+    
+    private _nearestRoad = [_stagingPoint, 150, _base] call ACF_ai_findNearestRoad;
+    if (count _nearestRoad > 0) exitWith {_nearestRoad};
+    
+    // Second attempt from attacker position
+    _stagingPoint = _attackerPos;
+    _bases = [_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
+    
+    if (_bases#0 distance _stagingPoint < 450) then {
+        private _nearestSpawn = [_bases#0, ["stagePoints","spawnPoints"], _attackerPos] call ACF_ai_findNearestSpawn;
+        if (count _nearestSpawn > 0) exitWith {_nearestSpawn};
+    };
+    
+    _nearestRoad = [_stagingPoint, 150, _base] call ACF_ai_findNearestRoad;
+    if (count _nearestRoad > 0) exitWith {_nearestRoad};
+    
+    // If all attempts fail, return initial position
+    _stagingPoint = leader _attackGroup getRelPos [(_attackerPos distance _transPos)/5, leader _attackGroup getRelDir _transPos];
+	_stagingPoint
+};
+
+
 ACF_ai_transportAgent = {
 	params ["_base","_side","_attackGroup","_transportGroup"];
 	private _battalion = [_side] call ACF_battalion;
@@ -526,46 +497,7 @@ ACF_ai_transportAgent = {
 	private _attackerPos = getPosATL leader _attackGroup;
 	private _transPos = getPosATL leader _transportGroup;
 
-	private _stagingPoint = leader _attackGroup getRelPos [(_attackerPos distance _transPos)/5, leader _attackGroup getRelDir _transPos];
-	private _roads = [];
-	private _bases = AC_bases;
-	private _spawns = [];
-
-	//need a clear space for this
-	_bases = [_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
-	if ( _bases#0 distance _stagingPoint < 450) then {
-		_spawns = GVARS(_bases#0,"stagePoints",[]) + GVARS(_bases#0,"spawnPoints",[]);
-		if (count _spawns > 0) then {
-			_spawns = [_spawns,[],{_x distance _attackerPos},"ASCEND"] call BIS_fnc_sortBy;
-			_stagingPoint = _spawns#0;
-		};
-	} else {
-		_roads = _stagingPoint nearRoads 150;
-		if (count _roads > 0) then
-		{
-			_roads = [_roads,[],{_x distance _base},"ASCEND"] call BIS_fnc_sortBy;
-			private _road = _roads#0;
-			_stagingPoint = ASLToAGL getPosASL _road;
-		} else {
-			_stagingPoint = _attackerPos;
-			_bases = [_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
-			if ( _bases#0 distance _stagingPoint < 450) then {
-				_spawns = GVARS(_bases#0,"stagePoints",[]) + GVARS(_bases#0,"spawnPoints",[]);
-				if (count _spawns > 0) then {
-					_spawns = [_spawns,[],{_x distance _attackerPos},"ASCEND"] call BIS_fnc_sortBy;
-					_stagingPoint = _spawns#0;
-				};
-			} else {
-				_roads = _stagingPoint nearRoads 150;
-				if (count _roads > 0) then
-				{
-					_roads = [_roads,[],{_x distance _base},"ASCEND"] call BIS_fnc_sortBy;
-					private _road = _roads#0;
-					_stagingPoint = ASLToAGL getPosASL _road;
-				};
-			};
-		};
-	};
+	private _stagingPoint = [_attackGroup, _attackerPos, _transPos, _base] call ACF_ai_findTransportStaging;
 
 	[_attackGroup, _stagingPoint, B_TRANSPORT, false, 5] call ACF_ai_move;
 	[_transportGroup, _stagingPoint, B_TRANSPORT, false, 5] call ACF_ai_move;
@@ -636,6 +568,31 @@ ACF_ai_transportAgent = {
 	// };
 };
 
+// Update offensive staging finder to use helpers
+ACF_ai_findOffensiveStaging = {
+    params ["_base", "_leaderPos"];
+    
+    // Calculate randomized position
+    private _distance = (GVAR(_base,"out_perimeter") + OFFENSIVE_STAGING_DISTANCE);
+    private _angleSpread = 45;
+    private _baseAngle = _base getRelDir _leaderPos;
+    private _randomAngle = _baseAngle + (random _angleSpread - _angleSpread/2);
+    private _distanceVar = _distance * (0.8 + random 0.4);
+    
+    private _stagingPoint = _base getRelPos [_distanceVar, _randomAngle];
+    
+    // Try roads first
+    private _nearestRoad = [_stagingPoint, 60, _leaderPos] call ACF_ai_findNearestRoad;
+    if (count _nearestRoad > 0) exitWith {_nearestRoad};
+    
+    // Try spawn points
+    private _nearestSpawn = [_base, ["stagePoints","spawnPoints"], _leaderPos] call ACF_ai_findNearestSpawn;
+    if (count _nearestSpawn > 0) exitWith {_nearestSpawn};
+    
+    // Fallback to safe position
+    private _stagingPoint = [getPosATL _base, 30] call ACF_ai_findSafePos;
+    _stagingPoint
+};
 
 // Perform AI move to staging area
 ACF_ai_moveToStaging = {
@@ -649,48 +606,34 @@ ACF_ai_moveToStaging = {
 	private _randomAngle = _baseAngle + (random _angleSpread - _angleSpread/2);
 	private _distanceVar = _distance * (0.8 + random 0.4); // 80-120% of original distance
 	
-	private _stagingPoint = _base getRelPos [_distanceVar, _randomAngle];
-	private _roads = _stagingPoint nearRoads 60;
-	private _spawns = [];
-	if (count _roads > 0) then {
-		_roads = [_roads,[],{_x distance _leaderPos},"ASCEND"] call BIS_fnc_sortBy;
-		private _road = _roads#0;
-		_stagingPoint = ASLToAGL getPosASL _road;
-	} else {
-		_spawns = GVAR(_base,"stagePoints") + GVAR(_base,"spawnPoints");
-		if (count _spawns > 0) then {
-			_spawns = [_spawns,[],{_x distance _leaderPos},"ASCEND"] call BIS_fnc_sortBy;
-			_stagingPoint = _spawns#0;
-		} else {
-			_stagingPoint = getPosATL _base;
-			_stagingPoint = [_stagingPoint, 0, 30, 4, 0, 0.6, 0,[],[_stagingPoint,_stagingPoint]] call BIS_fnc_findSafePos;
-		};
-	};
+	private _stagingPoint = [_base, _leaderPos] call ACF_ai_findOffensiveStaging;
 
 	[_group, _stagingPoint, _moveType, _canGetOrders, _randomization] call ACF_ai_move;
 };
 
+// Helper function for base move staging point logic
+ACF_ai_findBaseMoveStaging = {
+    params ["_base", "_leaderPos"];
+    
+    // Try capture points first
+    private _nearestSpawn = [_base, ["capturePoints"], _leaderPos] call ACF_ai_findNearestSpawn;
+    if (count _nearestSpawn > 0) exitWith {_nearestSpawn};
+    
+    // Try roads
+    private _basePos = getPosATL _base;
+    private _nearestRoad = [_basePos, 30, _leaderPos] call ACF_ai_findNearestRoad;
+    if (count _nearestRoad > 0) exitWith {_nearestRoad};
+    
+    // Fallback to safe position
+    private _stagingPoint = [_basePos, 30] call ACF_ai_findSafePos;
+    _stagingPoint
+};
 
 // Perform AI move to base area
 ACF_ai_moveToBase = {
 	params ["_group","_base",["_moveType",B_DEFAULT],"_canGetOrders",["_randomization",0]];
 	private _leaderPos = getPosATL leader _group;
-	private _stagingPoint = getPosATL _base;
-	private _spawns = GVARS(_base,"capturePoints",[]);
-	if (count _spawns > 0) then {
-		_spawns = [_spawns,[],{_x distance _leaderPos},"ASCEND"] call BIS_fnc_sortBy;
-		_stagingPoint = _spawns#0;
-	} else {
-		private _roads = _stagingPoint nearRoads 30;
-		if (count _roads > 0) then
-		{
-			_roads = [_roads,[],{_x distance _leaderPos},"ASCEND"] call BIS_fnc_sortBy;
-			private _road = _roads#0;
-			_stagingPoint = ASLToAGL getPosASL _road;
-		} else {
-			_stagingPoint = [_stagingPoint, 0, 30, 4, 0, 0.6, 0,[],[_stagingPoint,_stagingPoint]] call BIS_fnc_findSafePos;
-		};
-	};
+	private _stagingPoint = [_base, _leaderPos] call ACF_ai_findBaseMoveStaging;
 
 	[_group, _stagingPoint, _moveType, _canGetOrders, _randomization] call ACF_ai_move;
 };
@@ -743,4 +686,66 @@ ACF_ai_attackReinforcements = {
 		];
 	};
 	_newAttackers
+};
+
+// Improved support and artillery usage function
+ACF_ai_useSupports = {
+    params ["_targetGroup", "_targetPos", "_side", "_battalion", ["_offensiveName", ""]];
+    
+    // Check and use support assets
+    private _supports = GVARS(_battalion,"ec_supportsList",[]);
+    if (count _supports == 0) exitWith {};
+	private _vehicle = ([_targetGroup] call ACF_getGroupVehicles) param [0, objNull];
+	{
+		private _supportType = _x#5;
+		private _ammoType = _x#6;
+		private _armorValue = _x#7;
+		private _chance = _x#2;
+		private _readyTime = _x#3;
+		
+		// Skip if support is not ready
+		if (time < _readyTime) then { continue; };
+		
+		// Skip if random chance check fails
+		if (random _chance > 1) then { continue; };
+		
+		private _shouldFire = false;
+		
+		// CAS support logic
+		if (_supportType == SUPPORT_CAS) then {
+			if (isNull _vehicle) then {
+				_shouldFire = true;
+			} else {
+				_shouldFire = _armorValue > 0;
+			};
+		}
+		// Artillery support logic
+		else {
+			private _ammoFlags = (getText (configfile >> "CfgAmmo" >> _ammoType >> "aiAmmoUsageFlags")) splitString " + ";
+			_shouldFire = switch (true) do {
+				case (isNull _vehicle): {"64" in _ammoFlags};
+				case (_vehicle isKindOf "Tank"): {"512" in _ammoFlags};
+				default {"128" in _ammoFlags};
+			};
+		};
+		
+		if (_shouldFire) then {
+			if(DEBUG_MODE) then {
+				systemChat format ["%1 Preparation artillery fire on: %2 [%3]", _offensiveName, _targetGroup, _targetPos];
+			};
+			[_targetPos, _battalion, _forEachIndex] remoteExec ["ACF_callSupport", 2];
+		};
+	} forEach _supports;
+
+    // Use artillery units
+    private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY}};
+    {
+        if (random 3 <= 1) then {
+            [_x, _targetPos] call AC_ai_fireMission;
+            if(DEBUG_MODE) then {
+                systemChat format ["%1 Fire mission called", _offensiveName];
+            };
+        };
+        sleep 1;
+    } forEach _artGroups;
 };

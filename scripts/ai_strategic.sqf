@@ -268,7 +268,7 @@ ACF_ai_groupStrength = {
 	if(DEBUG_MODE) then {
 		//private _groupString = [_groupType, "name"] call ACF_getGroupString;  // Get proper group type name
 
-		systemChat format ["[Group] %1 Strength:%2 | Units:%3/%5", 
+		systemChat format ["[Group] %1 Strength:%2 | Units:%3/%4", 
 			_group,
 			//_groupString,
 			_result toFixed 1,
