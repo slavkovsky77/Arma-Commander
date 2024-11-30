@@ -37,7 +37,124 @@ ACF_ai_selectTargetBase = {
 	_targetBases
 };
 
-// Modified ACF_ai_assignAttacks to use the new function
+// Helper to get available combat groups
+ACF_ai_getAvailableGroups = {
+    params ["_side", "_hqGroup"];
+    AC_operationGroups select {
+        side _x == _side
+        && {GVARS(_x,"canGetOrders",true)}
+        && {_x != _hqGroup}
+        && {GVAR(_x,"type") != TYPE_ARTILLERY}
+        && {GVAR(_x,"type") != TYPE_AIR}
+        && {!([_x] call ACF_grp_isUtility)}
+    };
+};
+
+// Helper to handle empty base attacks - now includes base selection
+ACF_ai_handleEmptyBase = {
+    params ["_borderBases", "_side", "_groups", "_battalion"];
+    
+    // Find empty bases
+    private _emptyBases = _borderBases select {GVAR(_x,"side") == sideEmpty};
+    if (count _emptyBases == 0 || count _groups == 0) exitWith {[objNull, _groups]};
+    
+    // Sort groups by distance to battalion
+    _groups = [_groups,[],{leader _x distance2D _battalion},"ASCEND"] call BIS_fnc_sortBy;
+    
+    // Find closest empty base to lead group
+    _emptyBases = [_emptyBases,[],{_x distance2D leader (_groups#0)},"ASCEND"] call BIS_fnc_sortBy;
+    private _emptyBase = _emptyBases#0;
+    
+    // Get closest group to target
+    private _closestGroup = ([_groups,[],{leader _x distance2D _emptyBase},"ASCEND"] call BIS_fnc_sortBy)#0;
+    
+    if(DEBUG_MODE) then {
+        systemChat format ["[%1] Attacking empty base %2 with %3", _side, GVAR(_emptyBase,"callsign"), _closestGroup];
+    };
+    
+    SVARG(_closestGroup,"canGetOrders",false);
+    [_emptyBase,_side, [_closestGroup]] spawn ACF_ai_offensiveAgent;
+    
+    [_emptyBase, _groups - [_closestGroup]]
+};
+
+// Helper to request reinforcements
+ACF_ai_requestReinforcements = {
+    params ["_battalion", "_side", "_hqGroup", "_targetBase", "_strength", "_requiredStrength"];
+    
+    private _nDeployedGroups = {
+        side _x == _side && 
+        {{alive _x} count units _x > 0} && 
+        {_x != _hqGroup}
+    } count AC_operationGroups;
+    
+    if (random AC_unitCap >= _nDeployedGroups) then {
+        if(DEBUG_MODE) then {
+            systemChat format ["[%1] Requesting units for %2 attack (Req: %3, Avail: %4)", 
+                _side, 
+                GVAR(_targetBase,"callsign"), 
+                _requiredStrength, 
+                _strength
+            ];
+        };
+        [_battalion] call ACF_ec_requestUnitAI;
+    };
+};
+
+
+
+// Helper to handle enemy base attacks
+ACF_ai_handleEnemyBase = {
+    params ["_borderBases", "_side", "_groups", "_battalion"];
+    
+    // Use target base selection
+    private _targetBases = [_borderBases, _side, _groups] call ACF_ai_selectTargetBase;
+    if (count _targetBases == 0) exitWith {[objNull, _groups]};
+    
+    private _targetBase = _targetBases#0;
+    _groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
+
+    // Calculate required strength
+    private _strength = 0;
+    private _requiredStrength = (GVAR(_targetBase,"att_costDet")*0.65) max 10;
+    _requiredStrength = _requiredStrength + GVAR(_targetBase,"nSoldiersOriginal");
+
+    private _attackGroups = [];
+    {
+        _strength = _strength + ([_x] call ACF_ai_groupStrength);
+        _attackGroups pushBack _x;
+        
+        if (_strength >= _requiredStrength) exitWith {
+            if(DEBUG_MODE) then {
+                systemChat format ["[%1] Attack on %2: str %3/%4", _side, GVAR(_targetBase,"callsign"), _strength, _requiredStrength];
+            };
+            {SVARG(_x,"canGetOrders",false)} forEach _attackGroups;
+            [_targetBase,_side,_attackGroups] spawn ACF_ai_offensiveAgent;
+            _targetBase
+        };
+    } forEach _groups;
+
+    // Request reinforcements if needed
+    if (_strength < _requiredStrength) then {
+        [_battalion, _side, _hqGroup, _targetBase, _strength, _requiredStrength] call ACF_ai_requestReinforcements;
+    };
+
+    if(DEBUG_MODE) then {
+        private _targetStr = GVAR(_targetBase,"att_costDet");
+        systemChat format ["[%1] Target %2: Base(%3) Required(%4) Available(%5)", 
+            _side, 
+            GVAR(_targetBase,"callsign"), 
+            _targetStr, 
+            _requiredStrength, 
+            _strength
+        ];
+    };
+
+    [_targetBase, _groups - _attackGroups]
+};
+
+
+// Main attack assignment function
 ACF_ai_assignAttacks = {
 	params ["_battalion"];
 	private _side = GVAR(_battalion,"side");
@@ -54,35 +171,20 @@ ACF_ai_assignAttacks = {
 		_borderBases = _borderBases - _ongoingAttacks;
 		if (count _borderBases > 0) then {
 			//Get available non-artillery non-air units
-			private _groups = AC_operationGroups select {
-				side _x == _side
-				&& {GVARS(_x,"canGetOrders",true)}
-				&& {_x != _hqGroup}
-				&& {GVAR(_x,"type") != TYPE_ARTILLERY}
-				&& {GVAR(_x,"type") != TYPE_AIR}
-				&& {!([_x] call ACF_grp_isUtility)}
-			};
+			private _groups = [_side, _hqGroup] call ACF_ai_getAvailableGroups;
+
 			// Attack empty base if possible
-			_emptyBases = _borderBases select {GVAR(_x,"side") == sideEmpty};
-			if (count _emptyBases > 0 && count _groups > 0) then {
-				//get base near troops
-				_groups = [_groups,[],{leader _x distance2D _battalion},"ASCEND"] call BIS_fnc_sortBy;
-				private _leadGroup = _groups#0;
-				_emptyBases = [_emptyBases,[],{_x distance2D leader _leadGroup},"ASCEND"] call BIS_fnc_sortBy;
-				private _emptyBase = _emptyBases#0;
-				_groups = [_groups,[],{leader _x distance2D _emptyBase},"ASCEND"] call BIS_fnc_sortBy;
-				private _closestGroup = _groups#0;
+			private _emptyBaseResult = [_borderBases, _side, _groups, _battalion] call ACF_ai_handleEmptyBase;
+			private _emptyBase = _emptyBaseResult#0;
+			private _remainingGroups = _emptyBaseResult#1;
+			
+			if !(isNull _emptyBase) then {
 				_ongoingAttacks pushBack _emptyBase;
-				if(DEBUG_MODE) then {
-					systemChat format ["[%1] Attacking empty base %2 with %3", _side, GVAR(_emptyBase,"callsign"), _closestGroup];
-				};
-				SVARG(_closestGroup,"canGetOrders",false);
-				[_emptyBase,_side, [_closestGroup]] spawn ACF_ai_offensiveAgent;
 				_borderBases = _borderBases - [_emptyBase];
-				_groups = _groups - [_closestGroup];
+				_groups = _remainingGroups;
 			};
 
-			// Use new function for target base selection
+			// Handle enemy bases
 			if (count _groups > 0) then {
 				_targetBases = [_borderBases, _side, _groups] call ACF_ai_selectTargetBase;
 				if (count _targetBases > 0) then {
