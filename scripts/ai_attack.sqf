@@ -66,7 +66,8 @@ ACF_ai_handleEmptyBase = {
     private _emptyBase = _emptyBases#0;
     
     // Get closest group to target
-    private _closestGroup = ([_groups,[],{leader _x distance2D _emptyBase},"ASCEND"] call BIS_fnc_sortBy)#0;
+    private _groupsByDistanceToBase = ([_groups,[],{leader _x distance2D _emptyBase},"ASCEND"] call BIS_fnc_sortBy);
+	private _closestGroup = _groupsByDistanceToBase#0;
     
     if(DEBUG_MODE) then {
         systemChat format ["[%1] Attacking empty base %2 with %3", _side, GVAR(_emptyBase,"callsign"), _closestGroup];
@@ -105,11 +106,22 @@ ACF_ai_requestReinforcements = {
 
 // Helper to handle enemy base attacks
 ACF_ai_handleEnemyBase = {
-    params ["_borderBases", "_side", "_groups", "_battalion"];
+    params ["_borderBases", "_side", "_groups", "_battalion", "_hqGroup"];
+    
+    if (count _groups == 0) exitWith {[objNull, _groups]};
     
     // Use target base selection
     private _targetBases = [_borderBases, _side, _groups] call ACF_ai_selectTargetBase;
-    if (count _targetBases == 0) exitWith {[objNull, _groups]};
+    if (count _targetBases == 0) exitWith {
+        private _nDeployedGroups = {side _x == _side && {{alive _x} count units _x > 0} && {_x != _hqGroup}} count AC_operationGroups;
+        if (random AC_unitCap >= _nDeployedGroups) then {
+            if(DEBUG_MODE) then {
+                systemChat format ["[%1] No groups for attack - requesting units", _side];
+            };
+            [_battalion] call ACF_ec_requestUnitAI;
+        };
+        [objNull, _groups]
+	};
     
     private _targetBase = _targetBases#0;
     _groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
@@ -123,7 +135,8 @@ ACF_ai_handleEnemyBase = {
     {
         _strength = _strength + ([_x] call ACF_ai_groupStrength);
         _attackGroups pushBack _x;
-        
+		// Create attack only if enough soldiers are available
+
         if (_strength >= _requiredStrength) exitWith {
             if(DEBUG_MODE) then {
                 systemChat format ["[%1] Attack on %2: str %3/%4", _side, GVAR(_targetBase,"callsign"), _strength, _requiredStrength];
@@ -185,61 +198,12 @@ ACF_ai_assignAttacks = {
 			};
 
 			// Handle enemy bases
-			if (count _groups > 0) then {
-				_targetBases = [_borderBases, _side, _groups] call ACF_ai_selectTargetBase;
-				if (count _targetBases > 0) then {
-					private _targetBase = _targetBases#0;
-					_groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
-
-					// Send adequate strength to attack:
-					private _strength = 0;
-					private _requiredStrength = (GVAR(_targetBase,"att_costDet")*0.65) max 10;
-					_requiredStrength = _requiredStrength + GVAR(_targetBase,"nSoldiersOriginal");
-
-					{
-						_strength = _strength + ([_x] call ACF_ai_groupStrength);
-						// Create attack only if enough soldiers are available
-						if (_strength >= _requiredStrength) exitWith {
-							_groups resize (_forEachIndex + 1);
-							if(DEBUG_MODE) then {
-								systemChat format ["[%1] Attack on %2: str %3/%4", _side, GVAR(_targetBase,"callsign"), _strength, _requiredStrength];
-							};
-							{
-								SVARG(_x,"canGetOrders",false);
-							} forEach _groups;
-						
-							[_targetBase,_side,_groups] spawn ACF_ai_offensiveAgent;
-							_ongoingAttacks pushBack _targetBase;
-							SVARG(_battalion,"attacks", _ongoingAttacks);
-						};
-					} forEach _groups;
-
-					if (_strength < _requiredStrength) then {
-						private _nDeployedGroups = {side _x == _side && {{alive _x} count units _x > 0} && {_x != _hqGroup}} count AC_operationGroups;
-						if (random AC_unitCap >= _nDeployedGroups) then {
-							if(DEBUG_MODE) then {
-								systemChat format ["[%1] Requesting units for %2 attack (Req: %3, Avail: %4)", _side, GVAR(_targetBase,"callsign"), _requiredStrength, _strength];
-							};
-							[_battalion] call ACF_ec_requestUnitAI;
-						};
-					};
-					if (count _targetBases > 0) then {
-						if(DEBUG_MODE) then {
-							private _targetStr = GVAR(_targetBase,"att_costDet");
-							systemChat format ["[%1] Target %2: Base(%3) Required(%4) Available(%5)", _side, GVAR(_targetBase,"callsign"), _targetStr, _requiredStrength, _strength];
-						};
-					};
-				} else {
-					private _nDeployedGroups = {side _x == _side && {{alive _x} count units _x > 0} && {_x != _hqGroup}} count AC_operationGroups;
-					if (random AC_unitCap >= _nDeployedGroups) then {
-						if(DEBUG_MODE) then {
-							systemChat format ["[%1] No groups for attack - requesting units", _side];
-						};
-						[_battalion] call ACF_ec_requestUnitAI;
-					};
-				};
+			private _enemyBaseResult = [_borderBases, _side, _groups, _battalion, _hqGroup] call ACF_ai_handleEnemyBase;
+			if !(isNull (_enemyBaseResult#0)) then {
+				_ongoingAttacks pushBack (_enemyBaseResult#0);
+				_groups = _enemyBaseResult#1;
+				SVARG(_battalion,"attacks", _ongoingAttacks);
 			};
-			SVARG(_battalion,"attacks", _ongoingAttacks);
 		};
 	};
 
