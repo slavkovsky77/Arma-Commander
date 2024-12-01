@@ -19,9 +19,9 @@ ACF_ai_selectTargetBase = {
 		private _baseCost = GVAR(_base,"att_costDet");
 		private _enemyPresence = GVAR(_base,"nSoldiersOriginal");
 		
-		private _normalizedDistance = (_distance / _maxDistance) max 1;
-		private _normalizedBaseCost = (_baseCost / _maxCost) max 1;
-		private _normalizedPresence = (_enemyPresence / _maxPresence) max 1;
+		private _normalizedDistance = (_distance / _maxDistance) min 1;
+		private _normalizedBaseCost = (_baseCost / _maxCost) min 1;
+		private _normalizedPresence = (_enemyPresence / _maxPresence) min 1;
 		
 		// Weighted scoring system
 		private _distanceWeight = 0.4;  // Reduce distance importance
@@ -166,6 +166,63 @@ ACF_ai_handleEnemyBase = {
     [_targetBase, _groups - _attackGroups]
 };
 
+// Helper to handle counter attacks
+ACF_ai_handleCounterAttacks = {
+    params ["_battalion", "_side", "_hqGroup"];
+    
+    private _groups = [_side, _hqGroup] call ACF_ai_getAvailableGroups;
+    if (count _groups == 0) exitWith {};
+    
+    //determine defender detection type
+    private _color = switch (_side) do {
+        case west: { "Wdetected" };
+        case east: { "Edetected" };
+        case resistance: { "Idetected" };
+    };
+    private _foes = AC_operationGroups select {side _x != _side && {GVARS(_x,_color,false)} };  //get strongest foes
+    if (count _foes == 0) exitWith {
+		if(DEBUG_MODE) then {systemChat format ["No foes founds"]};
+	};
+    
+    _foes = [_foes,[],{[_x] call ACF_ai_groupStrength},"DESCEND"] call BIS_fnc_sortBy;
+    private _type = GVARS(_foes#0,"typeStr",""); //group entry
+    private _foeType = [_type,"type"] call ACF_getGroupNumber; // unit type
+    if(DEBUG_MODE) then {
+        systemChat format ["Strongest enemy detected: %1 (%2)", _type, _foeType];
+    };
+
+    private _groupsAvail = _groups select {([_x] call ACF_ai_groupThreat) == _foeType };
+    private _tarGroup = _foes#0;
+    private _tarPos = getPosWorld leader _tarGroup;
+
+    if (count _groupsAvail == 0) exitWith {
+        //order counter unit
+        private _nDeployedGroups = {side _x == _side && {{alive _x} count units _x > 0} && {_x != _hqGroup}} count AC_operationGroups;
+        if (random AC_unitCap >= _nDeployedGroups) then {
+            if(DEBUG_MODE) then {
+                systemChat format ["[%1] Requesting counter units against %2 threat", 
+                    _side,
+                    ["Infantry", "Armor", "Support", "Air"] select _foeType
+                ];
+            };
+            _groups = _groups select { ([_x] call ACF_ai_groupThreat) == _foeType };
+            private _groupsRequest = [];
+            {
+                _groupsRequest pushBackUnique GVARS(_x,"typeStr",""); //group entry
+            } forEach _groups;
+            [_battalion, _groupsRequest] call ACF_ec_requestCounterUnitAI;
+        };
+        if (_foeType == TYPE_AIR) exitwith {};
+        [_tarGroup, _tarPos, _side, _battalion] call ACF_ai_useSupports;
+    };
+
+    _groupsAvail = [_groupsAvail,[],{leader _x distance2D _tarPos},"ASCEND"] call BIS_fnc_sortBy;
+    private _counterGroup = _groupsAvail#0;
+    
+    SVARG(_counterGroup,"canGetOrders",false);
+    [_tarGroup, _side, _counterGroup] spawn ACF_ai_counterAgent;
+};
+
 
 // Main attack assignment function
 ACF_ai_assignAttacks = {
@@ -176,10 +233,9 @@ ACF_ai_assignAttacks = {
 
 	private _strat = GVARS(_battalion,"stratMultiplier",1); //strategic skill of side AI
 	private _borderBases = [_side] call ACF_borderBases;
-	private _emptyBases = [];
 	private _targetBases = [];
 	
-	IF (count _ongoingAttacks < _strat) then {
+	if (count _ongoingAttacks < _strat) then {
 		//Get a list of frontier bases4
 		_borderBases = _borderBases - _ongoingAttacks;
 		if (count _borderBases > 0) then {
@@ -199,69 +255,19 @@ ACF_ai_assignAttacks = {
 
 			// Handle enemy bases
 			private _enemyBaseResult = [_borderBases, _side, _groups, _battalion, _hqGroup] call ACF_ai_handleEnemyBase;
-			if !(isNull (_enemyBaseResult#0)) then {
-				_ongoingAttacks pushBack (_enemyBaseResult#0);
-				_groups = _enemyBaseResult#1;
+			private _enemyBase = _enemyBaseResult#0;
+			_remainingGroups = _enemyBaseResult#1;
+			if !(isNull _enemyBase) then {
+				_ongoingAttacks pushBack _enemyBase;
+				_groups = _remainingGroups;
 				SVARG(_battalion,"attacks", _ongoingAttacks);
 			};
 		};
 	};
 
-	//try a counter
-	_ongoingAttacks = GVARS(_battalion,"counters",[]);
-	_groups = AC_operationGroups select {
-		side _x == _side
-		&& {GVARS(_x,"canGetOrders",true)}
-		&& {_x != _hqGroup}
-		&& {GVAR(_x,"type") != TYPE_ARTILLERY}
-		&& {!([_x] call ACF_grp_isUtility)}
-	};
-	if ( (count _ongoingAttacks < _strat) && {count _groups > 0} ) then {
-		//determine defender detection type
-		private _color = switch (_side) do {
-			case west: { "Wdetected" };
-			case east: { "Edetected" };
-			case resistance: { "Idetected" };
-		};
-		private _foes = AC_operationGroups select {side _x != _side && {GVARS(_x,_color,false)} };	//get strongest foes
-		if (count _foes == 0) exitWith {if(DEBUG_MODE) then {systemChat format ["No foes founds"]};};
-		_foes = [_foes,[],{[_x] call ACF_ai_groupStrength},"DESCEND"] call BIS_fnc_sortBy;
-		private _type = GVARS(_foes#0,"typeStr",""); //group entry
-		private _foeType = [_type,"type"] call ACF_getGroupNumber; // unit type
-		if(DEBUG_MODE) then {
-			systemChat format ["Strongest enemy detected: %1 (%2)", _type, _foeType];
-		};
-
-		private _groupsAvail = _groups select {([_x] call ACF_ai_groupThreat) == _foeType };
-
-		private _tarGroup = _foes#0;
-		private _tarPos = getPosWorld leader _tarGroup;
-
-		if (count _groupsAvail == 0) exitWith {
-			//order counter unit
-			private _nDeployedGroups = {side _x == _side && {{alive _x} count units _x > 0} && {_x != _hqGroup}} count AC_operationGroups;
-			if (random AC_unitCap >= _nDeployedGroups) exitWith {
-				if(DEBUG_MODE) then {
-					systemChat format ["[%1] Requesting counter units against %2 threat", 
-						_side,
-						["Infantry", "Armor", "Support", "Air"] select _foeType
-					];
-				};
-				_groups = _groups  select { ([_x] call ACF_ai_groupThreat) == _foeType };
-				private _groupsRequest = [];
-				{
-					_groupsRequest pushBackUnique GVARS(_x,"typeStr",""); //group entry
-				} forEach _groups;
-				[_battalion, _groupsRequest] call ACF_ec_requestCounterUnitAI;
-			};
-			if (_foeType == TYPE_AIR) exitwith {};
-			[_tarGroup, _tarPos, _side, _battalion] call ACF_ai_useSupports;
-		};
-
-		_groupsAvail = [_groupsAvail,[],{leader _x distance2D _tarPos},"ASCEND"] call BIS_fnc_sortBy;
-
-		SVARG(_groupsAvail#0,"canGetOrders",false);
-		[ _tarGroup, _side, _groupsAvail#0] spawn ACF_ai_counterAgent;
+	// Try counter attacks if under strategic limit
+	if (count _ongoingAttacks < _strat) then {
+		[_battalion, _side, _hqGroup] call ACF_ai_handleCounterAttacks;
 	};
 
 	if(DEBUG_MODE) then {
@@ -269,7 +275,8 @@ ACF_ai_assignAttacks = {
 		private _armor =  AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_MOTORIZED} };
 		private _artillery = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
 		private _air = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_AIR} };
-
+		private _emptyBases = _borderBases select {GVAR(_x,"side") == sideEmpty};
+		
 		systemChat format ["[%1] SITREP ATTACK | Borders: %2 | Empty: %3 | Forces(INF:%4 MOT:%5 ART:%6 Air:%7) | Attacks: %8 Mult: %9", 
 			_side,
 			_borderBases apply {GVAR(_x,"callsign")},
