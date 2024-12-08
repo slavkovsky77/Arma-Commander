@@ -294,154 +294,186 @@ ACF_ai_assignAttacks = {
 #define AS_STAGING 	1
 #define AS_ATTACK 	2
 
+// Helper to handle offensive staging phase
+ACF_ai_handleOffensiveStaging = {
+    params ["_base", "_side", "_attackGroups", "_battalion", "_offensiveName"];
+    
+    // Order all units to move to staging area
+    {
+        [_x, _base, B_TRANSPORT, false, 5] call ACF_ai_moveToStaging;
+    } forEach _attackGroups;
+
+    // Wait until initial timeout, or all units are ready to attack
+    private _stagingTimeout = time + 300; // 5 minutes are basic timeout
+    waitUntil {
+        sleep STRATEGY_TICK;
+        _attackGroups findIf {leader _x distance2d _base > DEFENSE_DISTANCE} == -1 || {time > _stagingTimeout}
+    };
+
+    // Check for early exit conditions
+    if !(IS_AI_ENABLED(_battalion)) exitWith {
+        {
+            SVARG(_x,"canGetOrders",true);
+        } forEach _attackGroups;
+        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        [false, []]
+    };
+
+    if (_attackGroups findIf {leader _x distance2d _base < DEFENSE_DISTANCE * 2} == -1) exitWith {
+        {
+            SVARG(_x,"canGetOrders",true);
+            while {count waypoints _x > 0} do {
+                deleteWaypoint ((waypoints _x)#0);
+            };
+        } forEach _attackGroups;
+        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        [false, []]
+    };
+
+    // Get reinforcements for staging phase
+    _attackGroups = [_base, _battalion, _side, _attackGroups, AS_STAGING] call ACF_ai_attackReinforcements;
+
+    if(DEBUG_MODE) then { 
+        if (time > _stagingTimeout) then {
+            systemChat format ["%1 Attacking after timeout", _offensiveName];
+        } else {
+            systemChat format ["%1 Attacking: all units ready", _offensiveName];    
+        };
+    };
+
+    [true, _attackGroups]
+};
+
+// Helper to handle attack initialization
+ACF_ai_handleAttackInit = {
+    params ["_base", "_side", "_attackGroups", "_battalion", "_offensiveName"];
+    
+    //determine defender detection type
+    private _color = switch (_side) do {
+        case west: { "Wdetected" };
+        case east: { "Edetected" };
+        case resistance: { "Idetected" };
+    };
+
+    //use supports
+    private _enemyGroups = AC_operationGroups select {side _x != _side && {GVAR(_x,"type") != TYPE_AIR} && {GVARS(_x,_color,false)} };
+    if (count _enemyGroups > 0) then {
+        _enemyGroups = [_enemyGroups,[],{leader _x distance2D _base},"ASCEND"] call BIS_fnc_sortBy;
+        private _tarGroup = _enemyGroups#0;
+        private _tarPos = getPosWorld leader _tarGroup;
+        [_tarGroup, _tarPos, _side, _battalion, _offensiveName] call ACF_ai_useSupports;
+    };
+
+    sleep STRATEGY_TICK;
+    if !(IS_AI_ENABLED(_battalion)) exitWith {
+        {
+            SVARG(_x,"canGetOrders",true);
+        } forEach _attackGroups;
+        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        false
+    };
+
+    // Order all attacking units to engage
+    {
+        [_x, _base, B_COMBAT, false, 5] call ACF_ai_moveToBase;
+    } forEach _attackGroups;
+
+    true
+};
+
 // Info about offensive is stored by the agent
 ACF_ai_offensiveAgent = {
-	params ["_base","_side","_attackGroups"];
+    params ["_base","_side","_attackGroups"];
 
-	private _offensiveName = format ["[%1] Offensive %2:", _side, GVAR(_base,"callsign")];
-	
-	if(DEBUG_MODE) then {
-		systemChat format ["%1 Starting with groups: %2", 
-			_offensiveName,
-			_attackGroups
-		];
-	};
+    private _offensiveName = format ["[%1] Offensive %2:", _side, GVAR(_base,"callsign")];
+    
+    if(DEBUG_MODE) then {
+        systemChat format ["%1 Starting agent with groups: %2", _offensiveName, _attackGroups];
+    };
 
-	// 1. STAGING PHASE
-	// Order all units to move to staging area
-	private _attackStage = AS_STAGING;
-	{
-		[_x, _base, B_TRANSPORT, false, 5] call ACF_ai_moveToStaging;
-	} forEach _attackGroups;
+    private _battalion = [_side] call ACF_battalion;
 
-	private _battalion = [_side] call ACF_battalion;
-	//private _offensiveName = "Offensive " + GVAR(_base,"callsign") + ": ";
-	//systemChat (_offensiveName + "Offensive started");
+    // 1. STAGING PHASE
+    private _stagingResult = [_base, _side, _attackGroups, _battalion, _offensiveName] call ACF_ai_handleOffensiveStaging;
+    if !(_stagingResult#0) exitWith {};
+    _attackGroups = _stagingResult#1;
 
-	// Wait until initial timeout, or all units are ready to attack
-	private _stagingTimeout = time + 300; // 5 minutes are basic timeout
-	waitUntil {
-		sleep STRATEGY_TICK;
-		_attackGroups findIf {leader _x distance2d _base > DEFENSE_DISTANCE} == -1 || {time > _stagingTimeout}
-	};
-	if !(IS_AI_ENABLED(_battalion)) exitWith {
-		{
-			SVARG(_x,"canGetOrders",true);
-		} forEach _attackGroups;
-		SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
-	};
-	if ( _attackGroups findIf {leader _x distance2d _base < DEFENSE_DISTANCE * 2} == -1 ) exitWith {
-		{
-			SVARG(_x,"canGetOrders",true);
-			while {count waypoints _x > 0} do {
-				deleteWaypoint ((waypoints _x)#0);
-			};
-		} forEach _attackGroups;
-		SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
-	};
-	_attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;
+    // 2. START ATTACK
+    private _attackInitResult = [_base, _side, _attackGroups, _battalion, _offensiveName] call ACF_ai_handleAttackInit;
+    if !(_attackInitResult) exitWith {};
 
-	if(DEBUG_MODE) then { 
-		if (time > _stagingTimeout) then {
-			systemChat format ["%1 Attacking after timeout", _offensiveName];
-		} else {
-			systemChat format ["%1 Attacking: all units ready", _offensiveName];	
-		};
-	};
+    private _attackStage = AS_ATTACK;
+    sleep STRATEGY_TICK;
+    _attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;
 
-	// 2. START ATTACK
-	//determine defender detection type
-	private _color = switch (_side) do {
-	    case west: { "Wdetected" };
-	    case east: { "Edetected" };
-	    case resistance: { "Idetected" };
-	};
+    // 3. MONITOR AND CONTROL ATTACK
+    private _ended = false;
+    while {!_ended} do {
+        sleep STRATEGY_TICK;
 
-	//use supports
-	private _enemyGroups = AC_operationGroups select {side _x != _side && {GVAR(_x,"type") != TYPE_AIR} && {GVARS(_x,_color,false)} };
-	if (count _enemyGroups > 0) then {
-		_enemyGroups = [_enemyGroups,[],{leader _x distance2D _base},"ASCEND"] call BIS_fnc_sortBy;
-		private _tarGroup = _enemyGroups#0;
-		private _tarPos = getPosWorld leader _tarGroup;
-		[_tarGroup, _tarPos, _side, _battalion, _offensiveName] call ACF_ai_useSupports;
-	};
+        // Check if AI is still enabled
+        if !(IS_AI_ENABLED(_battalion)) exitWith {
+            //End the attack, cleanup everything
+            {
+                [_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
+            } forEach _attackGroups;
+            SVARG(_battalion,"attacks",GVAR(_battalion,"attacks") - [_base]);
+        };
 
-	sleep STRATEGY_TICK;
-	if !(IS_AI_ENABLED(_battalion)) exitWith {
-		{
-			SVARG(_x,"canGetOrders",true);
-		} forEach _attackGroups;
-		SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
-	};
+        // Update attack/defense ratio
+        private _attDefRatio = (GVAR(_base,"thr_currentStr") max 0.01) / (GVAR(_base,"def_currentDetStr") max 0.01);
+        SVARG(_base,"adRatio",_attDefRatio);
+        // if(DEBUG_MODE) then {
+        //    systemChat format ["%1 Attack/Defense Ratio: %2", _offensiveName, _attDefRatio toFixed 2];
+        //};
 
-	// Order all attacking units to engage
-	{
-		[_x, _base, B_COMBAT, false, 5] call ACF_ai_moveToBase;
-	} forEach _attackGroups;
-	_attackStage = AS_ATTACK;
+        // Victory condition
+        if (GVAR(_base,"side") == _side) then {
+            _ended = true;
+            if(DEBUG_MODE) then {
+                systemChat format ["%1 Victory", _offensiveName];
+            };
+        }
+        // Check retreat condition
+        else if (_attDefRatio <= AD_RETREAT_THRESHOLD) then {
+            _ended = true;
+            if(DEBUG_MODE) then {
+                systemChat format ["%1 Retreating - insufficient force", _offensiveName];
+            };
+        }
+        // Continue attack
+        else {
+            // Update reinforcements
+            _attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;
+            
+            // Check if we still have groups
+            if (count _attackGroups < 1) then {
+                _ended = true;
+            };
+        };
 
-	sleep STRATEGY_TICK;
-	_attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;
+        // Debug status update
+        if(DEBUG_MODE) then {
+            private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
+            private _artStatus = if(count _artGroups > 0) then {
+                format ["Art:%1", count _artGroups]
+            } else { "No Art" };
 
-	// Check ending conditions
-	private _ended = false;
-	while {!_ended} do {
-		sleep STRATEGY_TICK;
-		if !(IS_AI_ENABLED(_battalion)) exitWith {
-			//End the attack, cleanup everything
-			{
-				[_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
-			} forEach _attackGroups;
-			SVARG(_battalion,"attacks",GVAR(_battalion,"attacks") - [_base]);
-		};
+            systemChat format ["[%1] OFFENSIVE AGENT STATUS | Att/Def Ratio:%2/%3 | Groups:%4 | %5", 
+                GVAR(_base,"callsign"),
+                _attDefRatio toFixed 2,
+                AD_RETREAT_THRESHOLD toFixed 2,
+                count _attackGroups,
+                _artStatus
+            ];
+        };
+    };
 
-		//Use strategy system evaluations for performance and consistency
-		private _attDefRatio = (GVAR(_base,"thr_currentStr") max 0.01) / (GVAR(_base,"def_currentDetStr") max 0.01);
-		SVARG(_base,"adRatio",_attDefRatio);
-		if(DEBUG_MODE) then {
-			systemChat format ["%1 Attack/Defense Ratio: %2", _offensiveName, _attDefRatio toFixed 2];
-		};
-
-		// Victory condition
-		if (GVAR(_base,"side") == _side) then {
-			_ended = true;
-			if(DEBUG_MODE) then {
-				systemChat format ["%1 Victory", _offensiveName];
-			};
-		} else {
-			// Retreat condition
-			if (_attDefRatio <= AD_RETREAT_THRESHOLD) then {
-				_ended = true;
-				if(DEBUG_MODE) then {
-					systemChat format ["%1 Retreating  - insufficient force", _offensiveName];
-				};
-			};
-		};
-		if (!_ended) then {_attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;};
-		if (count _attackGroups < 1) then {_ended = true;};
-
-		if(DEBUG_MODE) then {
-			private _artGroups = AC_operationGroups select {side _x == _side && {GVAR(_x,"type") == TYPE_ARTILLERY} };
-			private _artStatus = if(count _artGroups > 0) then {
-				format ["Art:%1", count _artGroups]
-			} else { "No Art" };
-
-			systemChat format ["[%1] OFFENSIVE STATUS | Att/Def Ratio:%2/%3 | Groups:%4 | %5", 
-				GVAR(_base,"callsign"),
-				_attDefRatio toFixed 2,
-				AD_RETREAT_THRESHOLD toFixed 2,
-				count _attackGroups,
-				_artStatus
-			];
-		};
-	};
-
-	// 3. End the attack, cleanup everything
-	{
-		[_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
-	} forEach _attackGroups;
-	SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
-
+    // 3. End the attack, cleanup everything
+    {
+        [_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
+    } forEach _attackGroups;
+    SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
 };
 
 
