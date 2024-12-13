@@ -1,12 +1,5 @@
 #include "\AC\defines\commonDefines.inc"
 
-if (["Debug", 0] call BIS_fnc_getParamValue == 0) then {
-	DEBUG_MODE = false;
-} else {
-	DEBUG_MODE = true;
-};
-DEBUG_MODE = true;
-
 // Handle Shared commanding feature
 if (["SharedCommanding", 0] call BIS_fnc_getParamValue == 0) then {
 	AC_sharedCommanding = false;
@@ -27,6 +20,7 @@ AC_battalions = entities "AC_moduleBattalion";
 AC_bases = entities "AC_ModuleACBase";
 AC_ended = false;
 AC_gameModule = (entities "AC_moduleAcGame")#0;
+DEBUG_MODE = GVAR(AC_gameModule,"Debug");
 AC_unitCap = ["UnitCap", -1] call BIS_fnc_getParamValue;
 ShutdownSpawnRadius = ["ShutdownSpawn",-1] call BIS_fnc_getParamValue;
 if (AC_unitCap == -1) then {AC_unitCap = GVAR(AC_gameModule,"UnitCap")};

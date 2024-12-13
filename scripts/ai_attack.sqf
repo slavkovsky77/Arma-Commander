@@ -1,8 +1,6 @@
 #include "\AC\defines\commonDefines.inc"
 
 
-systemChat format ["ai_attack v0.1.4"];
-
 // New function to extract target base selection logic
 ACF_ai_selectTargetBase = {
 	params ["_borderBases", "_side", "_groups"];
@@ -433,17 +431,18 @@ ACF_ai_offensiveAgent = {
             if(DEBUG_MODE) then {
                 systemChat format ["%1 Victory", _offensiveName];
             };
-        }
-        // Check retreat condition
-        else if (_attDefRatio <= AD_RETREAT_THRESHOLD) then {
+        };
+          
+        if (!_ended && _attDefRatio <= AD_RETREAT_THRESHOLD) then {
+            // Retreat
             _ended = true;
             if(DEBUG_MODE) then {
                 systemChat format ["%1 Retreating - insufficient force", _offensiveName];
             };
-        }
-        // Continue attack
-        else {
-            // Update reinforcements
+        };  
+
+        if (!_ended) then {
+            // Continue attack and update reinforcements
             _attackGroups = [_base,_battalion,_side,_attackGroups,_attackStage] call ACF_ai_attackReinforcements;
             
             // Check if we still have groups
@@ -459,7 +458,7 @@ ACF_ai_offensiveAgent = {
                 format ["Art:%1", count _artGroups]
             } else { "No Art" };
 
-            systemChat format ["[%1] OFFENSIVE AGENT STATUS | Att/Def Ratio:%2/%3 | Groups:%4 | %5", 
+            systemChat format ["[%1] OFFENSIVE AGENT STATUS | Att/Def Ratio:%2/%3 | Groups:%4 | Art %5", 
                 GVAR(_base,"callsign"),
                 _attDefRatio toFixed 2,
                 AD_RETREAT_THRESHOLD toFixed 2,
