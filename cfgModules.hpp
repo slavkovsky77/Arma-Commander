@@ -333,6 +333,15 @@ class AC_ModuleAcGame: AC_ModuleBase
 			defaultValue = "1";
 		};
 
+		class Debug: Checkbox
+		{
+			displayName = "Debug Mode";
+			property = "AC_ModuleAcGame_Debug";
+			tooltip = "Enable debug mode for development and testing";
+			typeName = "BOOL";
+			defaultValue = "false";
+		};
+
 		class ModuleDescription: ModuleDescription{};
 	};
 

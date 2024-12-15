@@ -35,17 +35,10 @@ ACF_ai_selectTargetBase = {
 	_targetBases
 };
 
-// Helper to get available combat groups
-ACF_ai_getAvailableGroups = {
-    params ["_side", "_hqGroup"];
-    AC_operationGroups select {
-        side _x == _side
-        && {GVARS(_x,"canGetOrders",true)}
-        && {_x != _hqGroup}
-        && {GVAR(_x,"type") != TYPE_ARTILLERY}
-        && {GVAR(_x,"type") != TYPE_AIR}
-        && {!([_x] call ACF_grp_isUtility)}
-    };
+// Attack cleanup utility - just handles attack list
+ACF_ai_cleanupAttack = {
+    params ["_battalion", "_base"];
+    SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
 };
 
 // Helper to handle empty base attacks - now includes base selection
@@ -57,14 +50,14 @@ ACF_ai_handleEmptyBase = {
     if (count _emptyBases == 0 || count _groups == 0) exitWith {[objNull, _groups]};
     
     // Sort groups by distance to battalion
-    _groups = [_groups,[],{leader _x distance2D _battalion},"ASCEND"] call BIS_fnc_sortBy;
+    _groups = [_groups, _battalion] call ACF_ai_sortByDistance;
     
     // Find closest empty base to lead group
-    _emptyBases = [_emptyBases,[],{_x distance2D leader (_groups#0)},"ASCEND"] call BIS_fnc_sortBy;
+    _emptyBases = [_emptyBases, _groups#0] call ACF_ai_sortByDistance;
     private _emptyBase = _emptyBases#0;
     
     // Get closest group to target
-    private _groupsByDistanceToBase = ([_groups,[],{leader _x distance2D _emptyBase},"ASCEND"] call BIS_fnc_sortBy);
+    private _groupsByDistanceToBase = [_groups, _emptyBase] call ACF_ai_sortByDistance;
 	private _closestGroup = _groupsByDistanceToBase#0;
     
     if(DEBUG_MODE) then {
@@ -122,7 +115,7 @@ ACF_ai_handleEnemyBase = {
 	};
     
     private _targetBase = _targetBases#0;
-    _groups = [_groups,[],{leader _x distance2D _targetBase},"ASCEND"] call BIS_fnc_sortBy;
+    _groups = [_groups, _targetBase] call ACF_ai_sortByDistance;
 
     // Calculate required strength
     private _strength = 0;
@@ -168,15 +161,11 @@ ACF_ai_handleEnemyBase = {
 ACF_ai_handleCounterAttacks = {
     params ["_battalion", "_side", "_hqGroup"];
     
-    private _groups = [_side, _hqGroup] call ACF_ai_getAvailableGroups;
+    private _groups = [_side, _hqGroup] call ACF_ai_getAvailableAttackGroups;
     if (count _groups == 0) exitWith {};
     
     //determine defender detection type
-    private _color = switch (_side) do {
-        case west: { "Wdetected" };
-        case east: { "Edetected" };
-        case resistance: { "Idetected" };
-    };
+    private _color = [_side] call ACF_ai_getDetectionColor;
     private _foes = AC_operationGroups select {side _x != _side && {GVARS(_x,_color,false)} };  //get strongest foes
     if (count _foes == 0) exitWith {
 		if(DEBUG_MODE) then {systemChat format ["No foes founds"]};
@@ -214,7 +203,7 @@ ACF_ai_handleCounterAttacks = {
         [_tarGroup, _tarPos, _side, _battalion] call ACF_ai_useSupports;
     };
 
-    _groupsAvail = [_groupsAvail,[],{leader _x distance2D _tarPos},"ASCEND"] call BIS_fnc_sortBy;
+    _groupsAvail = [_groupsAvail, _tarPos] call ACF_ai_sortByDistance;
     private _counterGroup = _groupsAvail#0;
     
     SVARG(_counterGroup,"canGetOrders",false);
@@ -238,7 +227,7 @@ ACF_ai_assignAttacks = {
 		_borderBases = _borderBases - _ongoingAttacks;
 		if (count _borderBases > 0) then {
 			//Get available non-artillery non-air units
-			private _groups = [_side, _hqGroup] call ACF_ai_getAvailableGroups;
+			private _groups = [_side, _hqGroup] call ACF_ai_getAvailableAttackGroups;
 
 			// Attack empty base if possible
 			private _emptyBaseResult = [_borderBases, _side, _groups, _battalion] call ACF_ai_handleEmptyBase;
@@ -313,7 +302,7 @@ ACF_ai_handleOffensiveStaging = {
         {
             SVARG(_x,"canGetOrders",true);
         } forEach _attackGroups;
-        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        [_battalion, _base] call ACF_ai_cleanupAttack;
         [false, []]
     };
 
@@ -324,7 +313,7 @@ ACF_ai_handleOffensiveStaging = {
                 deleteWaypoint ((waypoints _x)#0);
             };
         } forEach _attackGroups;
-        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        [_battalion, _base] call ACF_ai_cleanupAttack;
         [false, []]
     };
 
@@ -347,16 +336,12 @@ ACF_ai_handleAttackInit = {
     params ["_base", "_side", "_attackGroups", "_battalion", "_offensiveName"];
     
     //determine defender detection type
-    private _color = switch (_side) do {
-        case west: { "Wdetected" };
-        case east: { "Edetected" };
-        case resistance: { "Idetected" };
-    };
+    private _color = [_side] call ACF_ai_getDetectionColor;
 
     //use supports
     private _enemyGroups = AC_operationGroups select {side _x != _side && {GVAR(_x,"type") != TYPE_AIR} && {GVARS(_x,_color,false)} };
     if (count _enemyGroups > 0) then {
-        _enemyGroups = [_enemyGroups,[],{leader _x distance2D _base},"ASCEND"] call BIS_fnc_sortBy;
+        _enemyGroups = [_enemyGroups, _base] call ACF_ai_sortByDistance;
         private _tarGroup = _enemyGroups#0;
         private _tarPos = getPosWorld leader _tarGroup;
         [_tarGroup, _tarPos, _side, _battalion, _offensiveName] call ACF_ai_useSupports;
@@ -367,7 +352,7 @@ ACF_ai_handleAttackInit = {
         {
             SVARG(_x,"canGetOrders",true);
         } forEach _attackGroups;
-        SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+        [_battalion, _base] call ACF_ai_cleanupAttack;
         false
     };
 
@@ -415,7 +400,7 @@ ACF_ai_offensiveAgent = {
             {
                 [_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
             } forEach _attackGroups;
-            SVARG(_battalion,"attacks",GVAR(_battalion,"attacks") - [_base]);
+            [_battalion, _base] call ACF_ai_cleanupAttack;
         };
 
         // Update attack/defense ratio
@@ -472,7 +457,7 @@ ACF_ai_offensiveAgent = {
     {
         [_x, [_x] call ACF_rtbPos,B_TRANSPORT,true] call ACF_ai_move;
     } forEach _attackGroups;
-    SVARG(_battalion,"attacks", (GVAR(_battalion,"attacks") - [_base]));
+    [_battalion, _base] call ACF_ai_cleanupAttack;
 };
 
 
@@ -488,11 +473,7 @@ ACF_ai_counterAgent = {
 	[_attackGroup, _stagingPoint, B_COMBAT, false, 5] call ACF_ai_move;
 
 	// 2. attack until initial timeout
-	private _color = switch (_side) do {
-	    case west: { "Wdetected" };
-	    case east: { "Edetected" };
-	    case resistance: { "Idetected" };
-	};
+	private _color = [_side] call ACF_ai_getDetectionColor;
 
 	private _stagingTimeout = time + 300; // 5 minutes are basic timeout
    	while { sleep STRATEGY_TICK*2; time < _stagingTimeout && {alive leader _attackGroup} && {alive leader _enemy} && {GVARS(_enemy,_color,false)} } do {
@@ -522,39 +503,6 @@ ACF_ai_counterAgent = {
 	};
 };
 
-// Add new helper functions at the top of the file
-ACF_ai_findNearestRoad = {
-    params ["_pos", "_searchRadius", "_referencePos"];
-    private _roads = _pos nearRoads _searchRadius;
-    if (count _roads > 0) then {
-        _roads = [_roads,[],{_x distance _referencePos},"ASCEND"] call BIS_fnc_sortBy;
-        private _nearest_road = ASLToAGL getPosASL (_roads#0);
-        _nearest_road
-    } else {
-        []
-    };
-};
-
-ACF_ai_findNearestSpawn = {
-    params ["_base", "_spawnTypes", "_referencePos"];
-    private _spawns = [];
-    {
-        _spawns append GVARS(_base,_x,[]);
-    } forEach _spawnTypes;
-    
-    if (count _spawns > 0) then {
-        _spawns = [_spawns,[],{_x distance _referencePos},"ASCEND"] call BIS_fnc_sortBy;
-        _spawns#0
-    } else {
-        []
-    };
-};
-
-ACF_ai_findSafePos = {
-    params ["_basePos", "_searchRadius"];
-    private _safePos = [_basePos, 0, _searchRadius, 4, 0, 0.6, 0,[],[_basePos,_basePos]] call BIS_fnc_findSafePos;
-    _safePos
-};
 
 // Improved transport staging finder with flattened logic
 ACF_ai_findTransportStaging = {
@@ -562,7 +510,7 @@ ACF_ai_findTransportStaging = {
     
     // Initial point between attacker and transport
     private _stagingPoint = leader _attackGroup getRelPos [(_attackerPos distance _transPos)/5, leader _attackGroup getRelDir _transPos];
-    private _bases = [AC_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
+    private _bases = [AC_bases, _stagingPoint] call ACF_ai_sortByDistance;
     
     // First attempt with initial position
     if (_bases#0 distance _stagingPoint < 450) then {
@@ -575,7 +523,7 @@ ACF_ai_findTransportStaging = {
     
     // Second attempt from attacker position
     _stagingPoint = _attackerPos;
-    _bases = [_bases,[],{_x distance _stagingPoint},"ASCEND"] call BIS_fnc_sortBy;
+    _bases = [_bases, _stagingPoint] call ACF_ai_sortByDistance;
     
     if (_bases#0 distance _stagingPoint < 450) then {
         private _nearestSpawn = [_bases#0, ["stagePoints","spawnPoints"], _attackerPos] call ACF_ai_findNearestSpawn;
@@ -761,7 +709,7 @@ ACF_ai_attackReinforcements = {
 		&& {GVAR(_x,"type") != TYPE_AIR}
 		&& {!([_x] call ACF_grp_isUtility)}
 	});
-	_availableGroups = [_availableGroups,[],{leader _x distance2D _base},"ASCEND"] call BIS_fnc_sortBy;
+	_availableGroups = [_availableGroups, _base] call ACF_ai_sortByDistance;
 	{
 		_newAttackers pushBackUnique _x;
 		SVARG(_x,"canGetOrders",false);

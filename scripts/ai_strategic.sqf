@@ -71,23 +71,13 @@ ACF_ai_calculateDefensesAndThreat = {
 	private _defCurrentStrDet = 0;
 
 	//determine defender detection type
-	private _color = switch (_side) do {
-	    case west: { "Wdetected" };
-	    case east: { "Edetected" };
-	    case resistance: { "Idetected" };
-	    default { "Wdetected"};
-	};
+	private _color = [_side] call ACF_ai_getDetectionColor;
 
 	//determine enemy detection type
-	private _color2 = switch (_enemySide) do {
-	    case west: { "Wdetected" };
-	    case east: { "Edetected" };
-	    case resistance: { "Idetected" };
-	    default { "Edetected"};
-	};
+	private _color2 = [_enemySide] call ACF_ai_getDetectionColor; 
 	private _defCurrent = [];
 	private _thrCurrent = [];
-
+       
 	{
 		_defCurrent pushbackUnique _x;
 		true

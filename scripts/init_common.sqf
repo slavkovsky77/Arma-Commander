@@ -41,6 +41,7 @@ if (count AC_battalions != 2 ||
 private _scriptsToLoad = [
 	"ai_strategic",
 	"ai_waypoints",
+	"ai_utils",
 	"ai_attack",
 	"battalion",
 	"economy",
