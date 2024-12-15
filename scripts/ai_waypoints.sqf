@@ -44,18 +44,18 @@ ACF_ai_changeBehavior = {
 	params ["_group","_behavior"];
 	private _units = units _group;
 
-	if(DEBUG_MODE) then {
-		private _behaviorName = switch (_behavior) do {
-			case B_COMBAT: { "COMBAT" };
-			case B_TRANSPORT: { "TRANSPORT" };
-			case B_SILENT: { "STEALTH" };
-			default { "DEFAULT" };
-		};
-		systemChat format ["[%1] Switching to %2 behavior", 
-			_group,
-			_behaviorName
-		];
-	};
+	// if(DEBUG_MODE) then {
+	// 	private _behaviorName = switch (_behavior) do {
+	// 		case B_COMBAT: { "COMBAT" };
+	// 		case B_TRANSPORT: { "TRANSPORT" };
+	// 		case B_SILENT: { "STEALTH" };
+	// 		default { "DEFAULT" };
+	// 	};
+	// 	systemChat format ["[%1] Switching to %2 behavior", 
+	// 		_group,
+	// 		_behaviorName
+	// 	];
+	// };
 
 	// Set specific behaviour parts
 	switch (_behavior) do {
@@ -108,21 +108,6 @@ ACF_ai_changeBehavior = {
 			_x engineOn true;
 		} forEach ([_group] call ACF_getGroupVehicles);
 	};
-
-	// Log aircraft-specific behavior
-	if ([_group] call ACF_grp_isAircraft && DEBUG_MODE) then {
-		private _multiplier = switch (_behavior) do {
-			case B_SILENT: { 0.6 };
-			case B_TRANSPORT: { 1.3 };
-			default { 1 };
-		};
-		systemChat format ["[Air] %1 - Speed: %2%, Height: %3m", 
-			GVAR(_group,"callsign"),
-			(_multiplier * 100) toFixed 0,
-			HELI_ALT * _multiplier
-		];
-	};
-
 	SVARG(_group,"#b",_behavior);
 };
 

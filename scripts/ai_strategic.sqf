@@ -19,10 +19,6 @@ ACF_ai_strategyAgent = {
 		{
 			if (IS_AI_ENABLED(_x)) then {
 				private _side = GVAR(_x,"side");
-				if(DEBUG_MODE) then {
-					systemChat format ["[%1] Strategic planning cycle", _side];
-				};
-				
 				[_x] call ACF_ai_assignAttacks;
 				sleep 1;
 				[_x] call ACF_ai_assignDefenders;
@@ -36,7 +32,7 @@ ACF_ai_strategyAgent = {
 		sleep STRATEGY_TICK;
 
 		// Show AI info every 60 seconds
-		if(DEBUG_MODE && (time > _infoTick + 60)) then {
+		if(time > _infoTick + 60) then {
 			[] call ACF_ai_showAiInfo;
 			_infoTick = time;
 		};
@@ -125,19 +121,19 @@ ACF_ai_calculateDefensesAndThreat = {
 	_base setVariable ["thr_currentDetStr",_thrCurrentStrDet];
 	_base setVariable ["def_currentDetStr",_defCurrentStrDet]; // How many detected units are assigned to defense of the base
 	// TODO ::
-	if(DEBUG_MODE) then {
-		if (_thrCurrentStr > 0 && _defCurrentStr > 0) then {
-			systemChat format ["[%1] BASE %2 | Def/Thr(%3) | Units(%4/%5) | Cost A/D(%6/%7)", 
-				_side, 
-				_baseName,
-				(_defCurrentStr/_thrCurrentStr) toFixed 2,
-				count (_defCurrent select {GVARS(_x,_color2,false)}),
-				count _defCurrent,
-				_attackCostDet,
-				_defenseCostDet
-			];
-		};
-	};
+	// if(DEBUG_MODE) then {
+	// 	if (_thrCurrentStr > 0 && _defCurrentStr > 0) then {
+	// 		systemChat format ["[%1] BASE %2 | Def/Thr(%3) | Units(%4/%5) | Cost A/D(%6/%7)", 
+	// 			_side, 
+	// 			_baseName,
+	// 			(_defCurrentStr/_thrCurrentStr) toFixed 2,
+	// 			count (_defCurrent select {GVARS(_x,_color2,false)}),
+	// 			count _defCurrent,
+	// 			_attackCostDet,
+	// 			_defenseCostDet
+	// 		];
+	// 	};
+	// };
 };
 
 // Debug hint of all base statuses
@@ -214,9 +210,9 @@ ACF_ai_groupThreat = {
 		};
 	};
 
-	if(DEBUG_MODE) then {
-		systemChat format ["Group %1: Counter type %2", _group, _result];
-	};
+	// if(DEBUG_MODE) then {
+	// 	systemChat format ["Group %1: Counter type %2", _group, _result];
+	// };
 	SVARG(_group, "threat", _result);
 
 	_result
@@ -254,18 +250,6 @@ ACF_ai_groupStrength = {
 		_result = _result + GVARS(_x, "VehValue", 1);
 		true
 	} count ([_group] call ACF_getGroupVehicles);
-
-	if(DEBUG_MODE) then {
-		//private _groupString = [_groupType, "name"] call ACF_getGroupString;  // Get proper group type name
-
-		systemChat format ["[Group] %1 Strength:%2 | Units:%3/%4", 
-			_group,
-			//_groupString,
-			_result toFixed 1,
-			_n,         // Alive units
-			_max        // Total units
-		];
-	};
 
 	SVARG(_group, "resetStr", false);
 	SVARG(_group, "str", _result);
@@ -326,9 +310,9 @@ ACF_ai_assignDefenders = {
 	params ["_battalion"];
 	private _side = GVAR(_battalion,"side");
 	// Get a list of our frontier bases
-	if(DEBUG_MODE) then {
-		systemChat format ["[%1] Starting defender assignment", _side];
-	};
+	// if(DEBUG_MODE) then {
+	// 	systemChat format ["[%1] Starting defender assignment", _side];
+	// };
 
 	private _bases = [_side] call ACF_borderBases;
 	_bases = _bases select {GVAR(_x,"side") == _side};

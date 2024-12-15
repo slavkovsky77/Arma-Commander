@@ -84,6 +84,15 @@ class AC_ModuleBattalion: AC_ModuleBase
 			defaultValue = "0";
 		};
 
+		class MaxAttacks: Edit
+        {
+            property = "AC_ModuleBattalion_MaxAttacks";
+            displayName = "Max Ongoing Attacks";
+            tooltip = "How many attacks can be ongoing at once";
+            typeName = "NUMBER";
+            defaultValue = "2";
+        };
+
 		class Type: Combo
 		{
 			property = "AC_ModuleBattalion_Type";
@@ -341,7 +350,6 @@ class AC_ModuleAcGame: AC_ModuleBase
 			typeName = "BOOL";
 			defaultValue = "false";
 		};
-
 		class ModuleDescription: ModuleDescription{};
 	};
 

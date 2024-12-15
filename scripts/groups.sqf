@@ -144,10 +144,8 @@ ACF_grp_addGroupXp = {
 	private _nSoldiers = {alive _x} count units _group;
 	private _skill = skill leader _group;
 
-	//if (DEBUG_MODE) then {systemChat format ["%1 skill,", _skill]};
 	// Friendly fire does not add any skill
 	if (side group _killed == side group _killer || _nSoldiers == 0) exitWith {};
-	//if (DEBUG_MODE) then {systemChat format ["%1 skills,", _skill]};
 
 	private _newSkill = _skill + (XP_KILL_RATIO / _nSoldiers);
 	if (_newSkill > 1) then {_newSkill = 1}; // Clamp

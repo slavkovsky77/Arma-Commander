@@ -77,3 +77,96 @@ ACF_ai_getAvailableAttackGroups = {
         && {!([_x] call ACF_grp_isUtility)}
     };
 };
+
+// Helper to check if vehicle has alive crew
+ACF_ai_hasAliveCrew = {
+    params ["_vehicle"];
+    private _crew = crew _vehicle;
+    private _hasAlive = false;
+    {
+        if (alive _x) exitWith { _hasAlive = true };
+    } forEach _crew;
+    _hasAlive
+};
+
+// Get combat strength at position (infantry + vehicles)
+ACF_ai_getPositionStrength = {
+    params ["_position", "_side", ["_radius", 100]];
+    
+    private _nearUnits = _position nearEntities [["Man", "Tank", "LandVehicle"], _radius];
+    private _strength = 0;
+    
+    {
+        if (alive _x && {side _x == _side}) then {
+            private _unitStrength = switch (true) do {
+                // Infantry
+                case (_x isKindOf "Man"): { 1 };
+                // Heavy armor (if not empty)
+                case (_x isKindOf "Tank"): { 
+                    if ([_x] call ACF_ai_hasAliveCrew) then { 10 } else { 0 }
+                };
+                // Light armor and other vehicles (if not empty)
+                case (_x isKindOf "LandVehicle"): { 
+                    if ([_x] call ACF_ai_hasAliveCrew) then { 5 } else { 0 }
+                };
+                default { 1 };
+            };
+            _strength = _strength + _unitStrength;
+        };
+    } forEach _nearUnits;
+    
+    _strength
+};
+
+
+// Get combat strength of group (infantry + vehicles)
+ACF_ai_groupStrength_2 = {
+    params ["_group"];
+    
+    private _strength = 0;
+    // Count infantry
+    {
+        if (alive _x) then {
+            _strength = _strength + 1;
+        };
+    } forEach (units _group);
+    
+    // Count vehicles
+    {
+        if (alive _x && {[_x] call ACF_ai_hasAliveCrew}) then {
+            private _vehicleStrength = switch (true) do {
+                case (_x isKindOf "Tank"): { 10 };
+                case (_x isKindOf "LandVehicle"): { 5 };
+                default { 1 };
+            };
+            _strength = _strength + _vehicleStrength;
+        };
+    } forEach ([_group] call ACF_getGroupVehicles);
+    
+    _strength
+};
+
+
+// Unified logging function
+ACF_ai_log = {
+    params [
+        ["_component", "AI"],  // System component: AI, ATTACK, STAGING, etc
+        ["_message", ""],      // The message
+        ["_side", sideEmpty]   // Optional side for formatting
+    ];
+    
+    if (!DEBUG_MODE) exitWith {};
+    
+    private _sidePrefix = if (_side != sideEmpty) then {
+        format ["[%1] ", _side]
+    } else { "" };
+    
+    private _text = format [
+        "%1[%2] %3",
+        _sidePrefix,
+        _component,
+        _message
+    ];
+    
+    systemChat _text;
+};

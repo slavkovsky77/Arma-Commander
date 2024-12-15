@@ -185,10 +185,6 @@ ACF_ec_requestUnitAI = {
 			];
 		};
 		[_battalion,_selectedUnitIndex] call ACF_ec_orderGroup;
-	} else {
-		if(DEBUG_MODE) then {
-			systemChat format ["[%1] PURCHASE failed: No suitable units", _side];
-		};
 	};
 };
 
@@ -248,10 +244,6 @@ ACF_ec_requestCounterUnitAI = {
 			];
 		};
 		[_battalion,_selectedUnitIndex] call ACF_ec_orderGroup;
-	} else {
-		if(DEBUG_MODE) then {
-			systemChat format ["[%1]  COUNTER PURCHASE failed: No suitable units", _side];
-		};
 	};
 };
 
@@ -303,16 +295,16 @@ ACF_ec_requestMobilityUnitAI = {
 		[_battalion,_selectedUnitIndex] call ACF_ec_orderGroup;
 		// DEBUG
 		//systemChat str [_selectedUnitIndex,_unitTable#_selectedUnitIndex];
-		if(DEBUG_MODE) then {
-			private _selectedUnit = _unitTable#_selectedUnitIndex; 
-			systemChat format ["[%1] TRANSPORT | Unit:%2 | Cost:%3 | Stock:%4 | For:%5 groups", 
-				_side,
-				_selectedUnit#0,  // transport type
-				_selectedUnit#2,  // cost
-				_selectedUnit#1,  // remaining in stock
-				count _groups    // number of groups needing transport
-			];
-		};
+		// if(DEBUG_MODE) then {
+		// 	private _selectedUnit = _unitTable#_selectedUnitIndex; 
+		// 	systemChat format ["[%1] TRANSPORT | Unit:%2 | Cost:%3 | Stock:%4 | For:%5 groups", 
+		// 		_side,
+		// 		_selectedUnit#0,  // transport type
+		// 		_selectedUnit#2,  // cost
+		// 		_selectedUnit#1,  // remaining in stock
+		// 		count _groups    // number of groups needing transport
+		// 	];
+		// };
 	};
 };
 
@@ -370,17 +362,17 @@ ACF_ec_checkForReinforcements = {
 	} forEach ([_battalion] call ACF_combatGroups);
 
     // Single debug message showing what actually happened
-    if(DEBUG_MODE) then {
-        systemChat format ["[%1] REINFORCE CHECK | Points:%2->%3 | Cost:%4 | Soldiers:+%5 | Bases:%6 | Groups:%7", 
-            _side,
-            _startingPoints,
-            GVAR(_battalion,"points"),
-            _totalCost,
-            _soldiersAdded,
-            _reinforcedBases,
-            _resuppliedGroups
-        ];
-    };
+    // if(DEBUG_MODE) then {
+    //     systemChat format ["[%1] REINFORCE CHECK | Points:%2->%3 | Cost:%4 | Soldiers:+%5 | Bases:%6 | Groups:%7", 
+    //         _side,
+    //         _startingPoints,
+    //         GVAR(_battalion,"points"),
+    //         _totalCost,
+    //         _soldiersAdded,
+    //         _reinforcedBases,
+    //         _resuppliedGroups
+    //     ];
+    // };
 };
 
 ACF_ec_orderGroup = {
